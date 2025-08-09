@@ -49,4 +49,8 @@ def get_inbox(username: str):
     return {"inbox": inbox}
 
 
-    
+@app.get("/users/{username}")
+def get_user(username: str):
+    if username not in user_database:
+        raise HTTPException(404, "User not found.")
+    return {"username": username, "public_key": user_database[username]}
