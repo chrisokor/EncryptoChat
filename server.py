@@ -1,13 +1,10 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from uuid import uuid4
 from typing import List, Dict
 
 
 app = FastAPI()
-
-# storage
-user_database: Dict[str, str] = {} # username -> public key
-messages: Dict[str, List[dict]] = {} # username -> list of messages
 
 class RegisterRequest(BaseModel):
     username: str
@@ -18,6 +15,19 @@ class MessageRequest(BaseModel):
     frm: str
     ciphertext: str
 
+class Prekey(BaseModel):
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    key: str
+
+class PrekeyUpload(BaseModel):
+    prekeys: List[Prekey]
+
+
+# storage
+user_database: Dict[str, str] = {} # username -> public key
+messages: Dict[str, List[dict]] = {} # username -> list of messages
+prekeys_store: Dict[str, List[Prekey]] = {} # username -> queued public prekeys
+
 @app.post("/register")
 def register_user(request: RegisterRequest):
     if request.username in user_database:
@@ -25,6 +35,7 @@ def register_user(request: RegisterRequest):
 
     user_database[request.username] = request.public_key
     messages[request.username] = []
+    prekeys_store[request.username] = []
     return {"status": "registered"}
 
 
