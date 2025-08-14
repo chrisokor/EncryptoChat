@@ -65,3 +65,24 @@ def get_user(username: str):
     if username not in user_database:
         raise HTTPException(404, "User not found.")
     return {"username": username, "public_key": user_database[username]}
+
+
+@app.post("/users/{username}/prekeys")
+def upload_prekeys(username: str, body: PrekeyUpload):
+    if username not in user_database:
+        raise HTTPException(404, "User not found.")
+    
+    prekeys_store[username].extend(body.prekeys)
+    return {"ok": True, "count": len(prekeys_store[username])}
+
+
+@app.get("users/{username}/keys")
+def get_prekey(username: str):
+    if username not in user_database:
+        raise HTTPException(404, "User not found.")
+    
+    if prekeys_store[username]:
+        prekey = prekeys_store[username].pop(0)
+    else:
+        prekey = None
+    return {"username": username, "public_key": user_database[username], "prekey": prekey}
