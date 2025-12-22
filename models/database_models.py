@@ -33,6 +33,7 @@ class Message(Base):
     to_user = Column(String, ForeignKey("users.username", ondelete="CASCADE"), nullable=False, index=True)
     from_user = Column(String, nullable=False)
     ciphertext = Column(String, nullable=False)
+    prekey_id = Column(String, nullable=True) # track which prekey was used
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
 
