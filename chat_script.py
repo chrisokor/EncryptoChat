@@ -13,7 +13,7 @@ if __name__ == '__main__':
     name = sys.argv[1] if len(sys.argv[1]) > 1 else "alice"
     client = ChatClient(name)
 
-    
+
     client.register()
 
     while True:

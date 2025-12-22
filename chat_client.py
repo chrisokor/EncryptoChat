@@ -4,7 +4,7 @@ import base64
 from utils.constants import API
 from utils.base_64_utils import bytes_to_base64_str, base64_str_to_bytes
 from nacl.utils import random as nacl_random
-from fastapi import HTTPException
+from typing import Dict
 
 
 class ChatClient:
@@ -16,7 +16,7 @@ class ChatClient:
         self.shared_boxes = {}
 
         self.prekeys_to_privs: Dict[str, PrivateKey] = {}
-        self.sessions = Dict[str, Box] = {}
+        self.sessions: Dict[str, Box] = {}
         self._gen_prekeys(prekey_count)
 
     def _gen_prekeys(self, count: int):
@@ -38,8 +38,10 @@ class ChatClient:
             "username": self.username,
             "public_key": bytes_to_base64_str(bytes(self.public_key))
         })
-        if r.status_code not in (200, 201):
-            raise HTTPException(r.text)
+        if r.status_code == 400:
+            print(f"[{self.username}] is already registered.")
+            return
+        r.raise_for_status()
         
         r = requests.post(f"{API}/users/{self.username}/prekeys", json={
             "prekeys": self.prekeys_upload
@@ -57,24 +59,37 @@ class ChatClient:
         if response_data["prekey"] is None:
             # fallback to main public key if no prekeys available
             peer_public_key = PublicKey(base64_str_to_bytes(response_data["public_key"]))
+            self.sessions[peer] = {
+                "box": Box(self.secret_key, peer_public_key),
+                "prekey_id": None
+            }
             print(f"[{self.username}] No prekeys available for [{peer}], using main key.")
         else:
             # use available prekey
+            prekey_id = response_data["prekey"]["id"]
             peer_public_key = PublicKey(base64_str_to_bytes(response_data["prekey"]["key"]))  
-            print(f"[{self.username}] Using prekey {response_data["prekey"]["id"]} for [{peer}].")                          
-
-        self.shared_boxes[peer] = Box(self.secret_key, peer_public_key)
+            self.sessions[peer] = {
+                "box": Box(self.secret_key, peer_public_key),
+                "prekey_id": prekey_id
+            }
+            print(f"[{self.username}] Using prekey {prekey_id} for [{peer}].")                          
         print(f"[{self.username}] session ready with [{peer}].")
 
     # encrypt and send messages
     def send_message(self, to: str, plaintext: str):
-        box = self.shared_boxes[to]
+        if to not in self.sessions:
+            self.handshake_with(to)
+
+        session = self.sessions[to]
+        box = session["box"]
         nonce = nacl_random(Box.NONCE_SIZE)
         ciphertext = box.encrypt(plaintext.encode(), nonce)
+
         request = requests.post(f"{API}/send", json={
             "to": to,
             "frm": self.username,
-            "ciphertext": bytes_to_base64_str(ciphertext)
+            "ciphertext": bytes_to_base64_str(ciphertext),
+            "prekey_id": session["prekey_id"]
         })
         request.raise_for_status()
         print(f"[{self.username}] -> [{to}] sent.")
@@ -88,12 +103,37 @@ class ChatClient:
 
         for message in messages:
             frm = message["from"]
-            box = self.shared_boxes.get(frm)
+            prekey_id = message.get("prekey_id")
 
-            if not box:
-                self.handshake_with(frm)
-                box = self.shared_boxes[frm]
-            plaintext = box.decrypt(base64_str_to_bytes(message["ciphertext"])).decode()
-            print(f"[{self.username}] <- [{frm}]: [{plaintext}]")
+            # determine which key to use for encryption
+            if prekey_id and prekey_id in self.prekeys_to_privs:
+                # use the corresponding prekey private key
+                prekey_secret = self.prekeys_to_privs[prekey_id]
+
+                # get sender's public key
+                r = requests.get(f"{API}/users/{frm}")
+                r.raise_for_status()
+                sender_public_key = PublicKey(base64_str_to_bytes(r.json()["public_key"]))
+
+                box = Box(prekey_secret, sender_public_key)
+                print(f"[{self.username}] Decrypting with prekey {prekey_id}")
+            else:
+                # use main key
+                if frm in self.sessions:
+                    box = self.sessions[frm]["box"]
+                else:
+                    # create box with main keys
+                    r = requests.get(f"{API}/users/{frm}")
+                    r.raise_for_status()
+                    sender_public_key = PublicKey(base64_str_to_bytes(r.json()["public_key"]))
+                    box = Box(self.secret_key, sender_public_key)
+                print(f"[{self.username}] Decrypting with main key.")
+
+            try:
+                plaintext = box.decrypt(base64_str_to_bytes(message["ciphertext"])).decode()
+                print(f"[{self.username}] <- [{frm}]: [{plaintext}]")
+            except Exception as e:
+                print(f"[{self.username}] Failed to decrypt message from [{frm}]: {e}")
+               
 
 
