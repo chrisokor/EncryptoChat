@@ -1,6 +1,6 @@
-import sys, time
-import requests
+import sys
 from chat_client import ChatClient
+
 
 if __name__ == '__main__':
     '''
@@ -13,11 +13,8 @@ if __name__ == '__main__':
     name = sys.argv[1] if len(sys.argv[1]) > 1 else "alice"
     client = ChatClient(name)
 
-    try:
-        client.register()
-    except requests.HTTPError:
-        print(f"[{name}] is already registered")
-
+    
+    client.register()
 
     while True:
         command = input(f"{name}> ").strip()
