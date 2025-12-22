@@ -49,9 +49,20 @@ class ChatClient:
 
     # retrieve a peer's public key and create a Box (runs D-H inside)
     def handshake_with(self, peer: str):
-        r = requests.get(f"{API}/users/{peer}")
+        r = requests.get(f"{API}/users/{peer}/keys")
         r.raise_for_status()
-        peer_public_key = PublicKey(base64_str_to_bytes(r.json()["public_key"]))
+        response_data = r.json()
+
+        # check if prekey is available
+        if response_data["prekey"] is None:
+            # fallback to main public key if no prekeys available
+            peer_public_key = PublicKey(base64_str_to_bytes(response_data["public_key"]))
+            print(f"[{self.username}] No prekeys available for [{peer}], using main key.")
+        else:
+            # use available prekey
+            peer_public_key = PublicKey(base64_str_to_bytes(response_data["prekey"]["key"]))  
+            print(f"[{self.username}] Using prekey {response_data["prekey"]["id"]} for [{peer}].")                          
+
         self.shared_boxes[peer] = Box(self.secret_key, peer_public_key)
         print(f"[{self.username}] session ready with [{peer}].")
 
