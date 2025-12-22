@@ -1,0 +1,26 @@
+# EncryptoChat Dependencies
+
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# HTTP Client
+requests>=2.31.0
+
+# Cryptography
+PyNaCl>=1.5.0
+
+# Database
+SQLAlchemy>=2.0.0
+
+# Data Validation
+pydantic>=2.5.0
+
+# Standard library modules (no installation needed)
+# - base64
+# - sys
+# - time
+# - os
+# - uuid
+# - typing
+# - datetime
