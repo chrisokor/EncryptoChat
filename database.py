@@ -1,7 +1,7 @@
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from models import Base
+from models.database_models import Base
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost/encryptochat")
 
