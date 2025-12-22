@@ -1,10 +1,23 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel, Field
 from uuid import uuid4
 from typing import List, Dict
+from contextlib import asynccontextmanager
+from sqlalchemy.orm import Session
+from datetime import datetime, UTC
 
+from database import init_database, get_database
+from models.database_models import User, Message, Prekey
 
-app = FastAPI()
+# initialize database upon server start
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    init_database()
+    yield
+    # Shutdown (if needed)
+
+app = FastAPI(lifespan=lifespan)
 
 class RegisterRequest(BaseModel):
     username: str
@@ -14,13 +27,14 @@ class MessageRequest(BaseModel):
     to: str
     frm: str
     ciphertext: str
+    prekey_id: str
 
-class Prekey(BaseModel):
+class PrekeyRequest(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     key: str
 
 class PrekeyUpload(BaseModel):
-    prekeys: List[Prekey]
+    prekeys: List[PrekeyRequest]
 
 
 # storage
@@ -29,60 +43,91 @@ messages: Dict[str, List[dict]] = {} # username -> list of messages
 prekeys_store: Dict[str, List[Prekey]] = {} # username -> queued public prekeys
 
 @app.post("/register")
-def register_user(request: RegisterRequest):
-    if request.username in user_database:
+def register_user(request: RegisterRequest, db: Session = Depends(get_database)):
+    existing = db.query(User).filter(User.username == request.username).first()
+    if existing:
         raise HTTPException(400, "Username already exists.")
-
-    user_database[request.username] = request.public_key
-    messages[request.username] = []
-    prekeys_store[request.username] = []
+    
+    user = User(username=request.username, public_key=request.public_key)
+    db.add(user)
+    db.commit()
     return {"status": "registered"}
 
 
 @app.post("/send")
-def send_message(message_request: MessageRequest):
-    if not message_request.to in user_database:
+def send_message(message_request: MessageRequest, db: Session = Depends(get_database)):
+    recipient = db.query(User).filter(User.username == message_request.to).first()
+    if not recipient:
         raise HTTPException(404, "Message recipient not found.")
+    
+    message = Message(
+        to_user=message_request.to,
+        from_user=message_request.frm,
+        ciphertext=message_request.ciphertext,
+        prekey_id=message_request.prekey_id
+    )
 
-    messages[message_request.to].append({
-        "from": message_request.frm, "ciphertext": message_request.ciphertext
-        })
+    db.add(message)
+    db.commit()
     return {"status": "sent"}
 
 
 @app.get("/inbox/{username}")
-def get_inbox(username: str):
-    if username not in user_database:
+def get_inbox(username: str, db: Session = Depends(get_database)):
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
         raise HTTPException(404, "User not found.")
     
-    inbox = messages[username]
-    messages[username] = []
+    messages = db.query(Message).filter(Message.to_user == username).all()
+    inbox = [{
+        "from": message.from_user, 
+        "ciphertext": message.ciphertext,
+        "prekey_id": message.prekey_id
+        } for message in messages]
+
+    # delete message after retrieval
+    db.query(Message).filter(Message.to_user == username).delete()
+    db.commit()
     return {"inbox": inbox}
 
 
 @app.get("/users/{username}")
-def get_user(username: str):
-    if username not in user_database:
+def get_user(username: str, db: Session = Depends(get_database)):
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
         raise HTTPException(404, "User not found.")
-    return {"username": username, "public_key": user_database[username]}
+    return {"username": user.username, "public_key": user.public_key}
 
 
 @app.post("/users/{username}/prekeys")
-def upload_prekeys(username: str, body: PrekeyUpload):
-    if username not in user_database:
+def upload_prekeys(username: str, body: PrekeyUpload, db: Session = Depends(get_database)):
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
         raise HTTPException(404, "User not found.")
     
-    prekeys_store[username].extend(body.prekeys)
-    return {"ok": True, "count": len(prekeys_store[username])}
+    for pk in body.prekeys:
+        prekey = Prekey(id=pk.id, username=username, key=pk.key)
+        db.add(prekey)
+    db.commit()
+
+    count = db.query(Prekey).filter(Prekey.username == username, Prekey.used == False).count()
+    return {"ok": True, "count": count}
 
 
-@app.get("users/{username}/keys")
-def get_prekey(username: str):
-    if username not in user_database:
+@app.get("/users/{username}/keys")
+def get_prekey(username: str, db: Session = Depends(get_database)):
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
         raise HTTPException(404, "User not found.")
     
-    if prekeys_store[username]:
-        prekey = prekeys_store[username].pop(0)
+    prekey = db.query(Prekey).filter(Prekey.username == username, Prekey.used == False).first()
+
+    if prekey:
+        prekey.used = True
+        prekey.used_at = datetime.now(UTC)
+        db.commit()
+        prekey_data = {"id": prekey.id, "key": prekey.key}
     else:
-        prekey = None
-    return {"username": username, "public_key": user_database[username], "prekey": prekey}
+        prekey_data = None
+
+    return {"username": user.username, "public_key": user.public_key, "prekey": prekey_data}
