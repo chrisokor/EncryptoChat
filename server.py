@@ -8,6 +8,7 @@ from datetime import datetime, UTC
 
 from database import init_database, get_database
 from models.database_models import User, Message, Prekey
+from utils.redis_helper import push_message_to_inbox, pop_all_inbox_messages, get_inbox_count
 
 # initialize database upon server start
 @asynccontextmanager
@@ -60,15 +61,23 @@ def send_message(message_request: MessageRequest, db: Session = Depends(get_data
     if not recipient:
         raise HTTPException(404, "Message recipient not found.")
     
+    # store message in PostgreSQL for history
     message = Message(
         to_user=message_request.to,
         from_user=message_request.frm,
         ciphertext=message_request.ciphertext,
         prekey_id=message_request.prekey_id
     )
-
     db.add(message)
     db.commit()
+
+    # push message to Redis inbox queue for fast retrieval for recipient
+    push_message_to_inbox(message_request.to, {
+        "from": message_request.frm,
+        "ciphertext": message_request.ciphertext,
+        "prekey_id": message_request.prekey_id
+    })
+    
     return {"status": "sent"}
 
 
@@ -78,17 +87,21 @@ def get_inbox(username: str, db: Session = Depends(get_database)):
     if not user:
         raise HTTPException(404, "User not found.")
     
-    messages = db.query(Message).filter(Message.to_user == username).all()
-    inbox = [{
-        "from": message.from_user, 
-        "ciphertext": message.ciphertext,
-        "prekey_id": message.prekey_id
-        } for message in messages]
+    # get messages from Redis queue (fast)
+    inbox = pop_all_inbox_messages(username)
 
-    # delete message after retrieval
-    db.query(Message).filter(Message.to_user == username).delete()
-    db.commit()
     return {"inbox": inbox}
+
+
+@app.get("/inbox/{username}/count")
+def get_inbox_count_endpoint(username: str, db: Session = Depends(get_database)):
+    """Check how many pending messages without retrieving them"""
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(404, "User not found.")
+    
+    count = get_inbox_count(username)
+    return {"username": username, "count": count}
 
 
 @app.get("/users/{username}")
