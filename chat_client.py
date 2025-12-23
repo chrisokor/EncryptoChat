@@ -1,6 +1,8 @@
 from nacl.public import PrivateKey, Box, PublicKey
 import requests
 import base64
+import os
+import json
 from utils.constants import API
 from utils.base_64_utils import bytes_to_base64_str, base64_str_to_bytes
 from nacl.utils import random as nacl_random
@@ -11,13 +13,23 @@ class ChatClient:
 
     def __init__(self, username: str, prekey_count: int = 5):
         self.username = username
-        self.secret_key = PrivateKey.generate()
-        self.public_key = self.secret_key.public_key
-        self.shared_boxes = {}
+        self.keyfile = f".keys/{username}.json"
 
-        self.prekeys_to_privs: Dict[str, PrivateKey] = {}
+        # load or generate main keys
+        if os.path.exists(self.keyfile):
+            self._load_keys()
+            print(f"[{self.username}] Loaded existing keys")
+        else:
+            self.secret_key = PrivateKey.generate()
+            self.public_key = self.secret_key.public_key
+            self.prekeys_to_privs: Dict[str, PrivateKey] = {}
+            self._gen_prekeys(prekey_count)
+            self._save_keys()
+            print(f"[{self.username}] Generated new keys")
+
+        self.shared_boxes = {}
         self.sessions: Dict[str, Box] = {}
-        self._gen_prekeys(prekey_count)
+
 
     def _gen_prekeys(self, count: int):
         self.prekeys_upload = []
@@ -29,6 +41,43 @@ class ChatClient:
             self.prekeys_upload.append({
                 "id": prekey_id,
                 "key": bytes_to_base64_str(bytes(public_key))
+            })
+
+    def _save_keys(self):
+        """Save keys to disk"""
+        os.makedirs(".keys", exist_ok=True)
+        data = {
+            "secret_key": bytes_to_base64_str(bytes(self.secret_key)),
+            "public_key": bytes_to_base64_str(bytes(self.public_key)),
+            "prekeys": {}
+        }
+
+        # save prekey private keys
+        for prekey_id, priv_key in self.prekeys_to_privs.items():
+            data["prekeys"][prekey_id] = bytes_to_base64_str(bytes(priv_key))
+
+        with open(self.keyfile, "w") as f:
+            json.dump(data, f, indent=2)
+
+    
+    def _load_keys(self):
+        """Load keys from disk"""
+        with open(self.keyfile, "r") as f:
+            data = json.load(f)
+
+        self.secret_key = PrivateKey(base64_str_to_bytes(data["secret_key"]))
+        self.public_key = PublicKey(base64_str_to_bytes(data["public_key"]))
+
+        # load prekey private keys
+        self.prekeys_to_privs = {}
+        self.prekeys_upload = []
+        for prekey_id, priv_key_str in data["prekeys"].items():
+            priv_key = PrivateKey(base64_str_to_bytes(priv_key_str))
+            pub_key = priv_key.public_key
+            self.prekeys_to_privs[prekey_id] = priv_key
+            self.prekeys_upload.append({
+                "id": prekey_id,
+                "key": bytes_to_base64_str(bytes(pub_key))
             })
 
 
@@ -101,9 +150,14 @@ class ChatClient:
         request.raise_for_status()
         messages = request.json()["inbox"]
 
+        print(f"[{self.username}] My prekey IDs: {list(self.prekeys_to_privs.keys())}")
+
+
         for message in messages:
             frm = message["from"]
             prekey_id = message.get("prekey_id")
+
+            print(f"[{self.username}] Message from [{frm}] with prekey_id: {prekey_id}")
 
             # determine which key to use for encryption
             if prekey_id and prekey_id in self.prekeys_to_privs:
@@ -117,8 +171,12 @@ class ChatClient:
 
                 box = Box(prekey_secret, sender_public_key)
                 print(f"[{self.username}] Decrypting with prekey {prekey_id}")
+            elif prekey_id:
+                # prekey was used but we don't have private key
+                print(f"[{self.username}] Missing private key for prekey {prekey_id}, skipping message")
+                continue
             else:
-                # use main key
+                # no prekey - use main key
                 if frm in self.sessions:
                     box = self.sessions[frm]["box"]
                 else:
