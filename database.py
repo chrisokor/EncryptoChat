@@ -5,7 +5,7 @@ from models.database_models import Base
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost/encryptochat")
 
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_database():
