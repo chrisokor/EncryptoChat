@@ -44,3 +44,45 @@ class TestCrypto:
         decrypted = bob_box.decrypt(ciphertext)
 
         assert decrypted == message_plaintext
+
+    def test_encryption_with_different_keys_raises_exception(self):
+        """Test that decryption with wrong key fails"""
+        # arrange keys
+        alice_secret = PrivateKey.generate()
+        alice_public = alice_secret.public_key
+
+        bob_secret = PrivateKey.generate()
+        bob_public = bob_secret.public_key
+
+        chris_secret = PrivateKey.generate()
+        chris_public = chris_secret.public_key
+
+        # act with message encryption to bob and chris attempting decrypt
+        message_plaintext = b"Hello Bob!"
+        alice_box = Box(alice_secret, bob_public)
+        ciphertext = alice_box.encrypt(message_plaintext)
+
+        chris_box = Box(chris_secret, alice_box)
+
+        # assert Exception is raised
+        with pytest.raises(Exception):
+            chris_box.decrypt(ciphertext)
+
+    
+    def test_prekey_based_encryption(self):
+        """Test prekey-based key exchange"""
+        # arrange keys
+        bob_prekey_secret = PrivateKey.generate()
+        bob_prekey_public = bob_prekey_secret.public_key
+        bob_identity_public = PrivateKey.generate().public_key
+
+        alice_secret = PrivateKey.generate()
+
+        # act using prekeys
+        alice_box = Box(alice_secret, bob_prekey_public)
+        ciphertext = alice_box.encrypt(b"Hello with prekey")
+
+        bob_box = Box(bob_prekey_secret, alice_secret.public_key)
+        plaintext = bob_box.decrypt(ciphertext)
+
+        assert plaintext == b"Hello with prekey"
