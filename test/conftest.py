@@ -11,7 +11,7 @@ from models.database_models import Base
 
 
 # test database url
-TEST_DATABASE_URL = "postgresql://localhost/encryptochat_test"
+TEST_DATABASE_URL = "postgresql://encryptochat:encryptochat_password@localhost/encryptochat_test"
 TEST_REDIS_URL = "redis://127.0.0.1:6379/1" # DB 1 for tests
 
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
