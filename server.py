@@ -49,6 +49,12 @@ def register_user(request: RegisterRequest, db: Session = Depends(get_database))
     if existing:
         raise HTTPException(400, "Username already exists.")
     
+    if not request.username:
+        raise HTTPException(422, "Missing username.")
+
+    if not request.public_key:
+        raise HTTPException(422, "Missing public key.")
+
     user = User(username=request.username, public_key=request.public_key)
     db.add(user)
     db.commit()
