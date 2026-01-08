@@ -133,7 +133,7 @@ def upload_prekeys(username: str, body: PrekeyUpload, db: Session = Depends(get_
     return {"ok": True, "count": count}
 
 
-@app.get("/users/{username}/keys")
+@app.get("/users/{username}/prekeys")
 def get_prekey(username: str, db: Session = Depends(get_database)):
     user = db.query(User).filter(User.username == username).first()
     if not user:
