@@ -124,6 +124,9 @@ def upload_prekeys(username: str, body: PrekeyUpload, db: Session = Depends(get_
     if not user:
         raise HTTPException(404, "User not found.")
     
+    if not body.prekeys:
+        raise HTTPException(422, "Prekeys list cannot be empty.")
+
     for pk in body.prekeys:
         prekey = Prekey(id=pk.id, username=username, key=pk.key)
         db.add(prekey)
