@@ -1,4 +1,6 @@
 import os
+from nacl.public import PrivateKey
+from utils.base_64_utils import bytes_to_base64_str
 
 # test database url
 TEST_DATABASE_URL = "postgresql://encryptochat:encryptochat_password@127.0.0.1/encryptochat_test"
@@ -67,3 +69,23 @@ def redis_client():
     yield client
     client.flushdb() # clean up after test
     client.close()
+
+
+@pytest.fixture
+def registered_user(client):
+    """Register a user and return their credentials"""
+
+    user_secret_key = PrivateKey.generate()
+    user_public_key = user_secret_key.public_key
+    username = "Alice"
+
+    client.post("/register", json={
+        "username": username,
+        "public_key": bytes_to_base64_str(bytes(user_public_key))
+    })
+
+    return {
+        "username": username,
+        "secret_key": user_secret_key,
+        "public_key": user_public_key
+    }

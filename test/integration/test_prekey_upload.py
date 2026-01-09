@@ -5,15 +5,9 @@ from models.database_models import Prekey
 
 class TestPrekeyUpload:
 
-    def test_upload_prekeys_returns_success(self, client):
+    def test_upload_prekeys_returns_success(self, client, registered_user):
         # register user 
-        user_secret_key = PrivateKey.generate()
-        user_public_key = user_secret_key.public_key
-        username = "Alice"
-        client.post("/register", json={
-            "username": username,
-            "public_key": bytes_to_base64_str(bytes(user_public_key))
-        })
+        username = registered_user["username"]
 
         # create list of prekeys
         prekeys = []
@@ -36,15 +30,9 @@ class TestPrekeyUpload:
         assert response.json()["ok"] == True
 
 
-    def test_upload_prekeys_persists_to_database(self, client, db_session):
+    def test_upload_prekeys_persists_to_database(self, client, db_session, registered_user):
         # register user
-        user_secret_key = PrivateKey.generate()
-        user_public_key = user_secret_key.public_key
-        username = "Alice"
-        client.post("/register", json={
-            "username": username,
-            "public_key": bytes_to_base64_str(bytes(user_public_key))
-        })
+        username = registered_user["username"]
 
         # create prekey list and upload
         prekeys = []
@@ -86,15 +74,9 @@ class TestPrekeyUpload:
         assert response.status_code == 404
         assert response.json()["detail"] == "User not found." 
 
-    def test_upload_multiple_batches_accumulates_count(self, client):
+    def test_upload_multiple_batches_accumulates_count(self, client, registered_user):
         # register user
-        user_secret_key = PrivateKey.generate()
-        user_public_key = user_secret_key.public_key
-        username = "Alice"
-        client.post("/register", json={
-            "username": username,
-            "public_key": bytes_to_base64_str(bytes(user_public_key))
-        })
+        username = registered_user["username"]
 
         # create 15 prekeys among 3 lists (5 each)
         prekeys_batch1, prekeys_batch2, prekeys_batch3 = [], [], []
@@ -135,15 +117,9 @@ class TestPrekeyUpload:
 
 
 
-    def test_upload_prekeys_with_empty_prekeys_list_returns_422(self, client):
+    def test_upload_prekeys_with_empty_prekeys_list_returns_422(self, client, registered_user):
         # register user
-        user_secret_key = PrivateKey.generate()
-        user_public_key = user_secret_key.public_key
-        username = "Alice"
-        client.post("/register", json={
-            "username": username,
-            "public_key": bytes_to_base64_str(bytes(user_public_key))
-        })
+        username = registered_user["username"]
 
         # attempt prekey upload with empty list
         response = client.post(f"/users/{username}/prekeys", json={
