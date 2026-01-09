@@ -21,14 +21,14 @@ class TestPrekeyUpload:
             secret_key = PrivateKey.generate()
             prekey = secret_key.public_key
             prekeys.append({
-                "id": uuid4.hex(),
-                "key": prekey
+                "id": uuid4().hex,
+                "key": bytes_to_base64_str(bytes(prekey))
             })
             
 
         # upload prekeys
         response = client.post(f"/users/{username}/prekeys", json={
-            "prekeys": bytes_to_base64_str(bytes(prekeys))
+            "prekeys": prekeys
         })
 
         # assert successful response
@@ -52,7 +52,7 @@ class TestPrekeyUpload:
             secret_key = PrivateKey.generate()
             prekey = secret_key.public_key
             prekeys.append({
-                "id": uuid4.hex(),
+                "id": uuid4().hex,
                 "key": bytes_to_base64_str(bytes(prekey))
             })
 
@@ -74,7 +74,7 @@ class TestPrekeyUpload:
             secret_key = PrivateKey.generate()
             prekey = secret_key.public_key
             prekeys.append({
-                "id": uuid4.hex(),
+                "id": uuid4().hex,
                 "key": bytes_to_base64_str(bytes(prekey))
             })
 
@@ -88,16 +88,69 @@ class TestPrekeyUpload:
 
     def test_upload_multiple_batches_accumulates_count(self, client):
         # register user
+        user_secret_key = PrivateKey.generate()
+        user_public_key = user_secret_key.public_key
+        username = "Alice"
+        client.post("/register", json={
+            "username": username,
+            "public_key": bytes_to_base64_str(bytes(user_public_key))
+        })
 
         # create 15 prekeys among 3 lists (5 each)
+        prekeys_batch1, prekeys_batch2, prekeys_batch3 = [], [], []
+        for num in range(15):
+            secret_key = PrivateKey.generate()
+            prekey = secret_key.public_key
+            if num < 5:
+                prekeys_batch1.append({
+                    "id": uuid4().hex,
+                    "key": bytes_to_base64_str(bytes(prekey))
+                })
+            elif num >= 5 and num < 10:
+                prekeys_batch2.append({
+                    "id": uuid4().hex,
+                    "key": bytes_to_base64_str(bytes(prekey))
+                })
+            else:
+                prekeys_batch3.append({
+                    "id": uuid4().hex,
+                    "key": bytes_to_base64_str(bytes(prekey))
+                })
 
-        # upload each list separately
+        # upload each list separately and assert counts are 5, 10, and 15
+        response = client.post(f"/users/{username}/prekeys", json={
+            "prekeys": prekeys_batch1
+        })
+        assert response.json()["count"] == 5
 
-        # assert 2nd response count is 10 and final count is 15
+        response = client.post(f"/users/{username}/prekeys", json={
+            "prekeys": prekeys_batch2
+        })
+        assert response.json()["count"] == 10
+
+        response = client.post(f"/users/{username}/prekeys", json={
+            "prekeys": prekeys_batch3
+        })
+        assert response.json()["count"] == 15
+
+
 
     def test_upload_prekeys_with_empty_prekeys_list_returns_422(self, client):
         # register user
+        user_secret_key = PrivateKey.generate()
+        user_public_key = user_secret_key.public_key
+        username = "Alice"
+        client.post("/register", json={
+            "username": username,
+            "public_key": bytes_to_base64_str(bytes(user_public_key))
+        })
 
         # attempt prekey upload with empty list
+        response = client.post(f"/users/{username}/prekeys", json={
+            "prekeys": []
+        })
 
         # assert status code is 422 and returns "Prekey list cannot be empty."
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Prekeys list cannot be empty."
+
