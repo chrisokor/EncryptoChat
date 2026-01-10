@@ -1,6 +1,7 @@
 import os
 from nacl.public import PrivateKey
 from utils.base_64_utils import bytes_to_base64_str
+from uuid import uuid4
 
 # test database url
 TEST_DATABASE_URL = "postgresql://encryptochat:encryptochat_password@127.0.0.1/encryptochat_test"
@@ -89,3 +90,29 @@ def registered_user(client):
         "secret_key": user_secret_key,
         "public_key": user_public_key
     }
+
+
+@pytest.fixture
+def upload_prekeys(client):
+    """"Upload list of user's prekeys to database"""
+
+    def _upload_prekeys(username, count=5):
+        """Create list of a user's prekeys"""
+        
+        prekeys = []
+        for _ in range(count):
+            secret_key = PrivateKey.generate()
+            prekey = secret_key.public_key
+            prekeys.append({
+                "id": uuid4().hex,
+                "key": bytes_to_base64_str(bytes(prekey))
+            })
+
+        response = client.post(f"/users/{username}/prekeys", json={
+            "prekeys": prekeys
+        })
+        return {"prekeys": prekeys, "response": response}
+
+    return _upload_prekeys
+
+
