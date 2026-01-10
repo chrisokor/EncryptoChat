@@ -62,7 +62,7 @@ class TestCrypto:
         alice_box = Box(alice_secret, bob_public)
         ciphertext = alice_box.encrypt(message_plaintext)
 
-        chris_box = Box(chris_secret, alice_box)
+        chris_box = Box(chris_secret, alice_public)
 
         # assert Exception is raised
         with pytest.raises(Exception):
