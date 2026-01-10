@@ -150,6 +150,6 @@ def get_prekey(username: str, db: Session = Depends(get_database)):
         db.commit()
         prekey_data = {"id": prekey.id, "key": prekey.key}
     else:
-        prekey_data = None
+        raise HTTPException(410, "No prekeys available.")
 
     return {"username": user.username, "public_key": user.public_key, "prekey": prekey_data}
