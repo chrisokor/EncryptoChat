@@ -142,7 +142,7 @@ def get_prekey(username: str, db: Session = Depends(get_database)):
     if not user:
         raise HTTPException(404, "User not found.")
     
-    prekey = db.query(Prekey).filter(Prekey.username == username, Prekey.used == False).first()
+    prekey = db.query(Prekey).filter(Prekey.username == username, Prekey.used == False).order_by(Prekey.created_at).first()
 
     if prekey:
         prekey.used = True
