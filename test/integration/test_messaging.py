@@ -1,10 +1,35 @@
-
+from nacl.public import PrivateKey
+from utils.base_64_utils import bytes_to_base64_str
 
 
 class TestSendMessage:
 
     def test_send_message_returns_success(self, client):
-        pass
+        # register users
+        from_secret_key = PrivateKey.generate()
+        from_public_key = from_secret_key.public_key
+        from_username = "Alice"
+        client.post("/register", json={
+            "username": from_username,
+            "public_key": bytes_to_base64_str(bytes(from_public_key))
+        })
+
+        to_secret_key = PrivateKey.generate()
+        to_public_key = to_secret_key.public_key
+        to_username = "Bob"
+        client.post("/register", json={
+            "username": to_username,
+            "public_key": bytes_to_base64_str(bytes(to_public_key))
+        })
+
+        # to_user uploads prekeys
+        
+
+
+        client.post("/send", json={
+
+        })
+
 
     def test_send_message_persists_to_database(self, client):
         pass
