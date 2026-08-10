@@ -100,3 +100,22 @@ def test_mark_message_read_updates_status(client, registered_user):
 
     assert response.status_code == 200
     assert response.json()["status"] == "read"
+
+
+class TestSendMessage:
+    def test_websocket_receives_sent_message(self, client, registered_user):
+        sender = registered_user
+        recipient = register_and_login(client, "Bob")
+
+        with client.websocket_connect(f"/ws/{recipient['username']}?token={recipient['token']}") as websocket:
+            send = client.post("/send", headers={"Authorization": f"Bearer {sender['token']}"}, json={
+                "to": recipient["username"],
+                "frm": sender["username"],
+                "ciphertext": "YWJj",
+                "prekey_id": "prekey123",
+            })
+            assert send.status_code == 200
+            envelope = websocket.receive_json()
+
+        assert envelope["from"] == sender["username"]
+        assert envelope["ciphertext"] == "YWJj"

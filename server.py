@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, field_validator
 from uuid import uuid4
 from typing import List, Dict
@@ -13,6 +13,7 @@ from auth import (
     create_challenge,
     get_current_username,
     require_same_user,
+    verify_access_token,
     verify_challenge_signature,
 )
 from utils.redis_helper import push_message_to_inbox, pop_all_inbox_messages, get_inbox_count
@@ -27,6 +28,27 @@ async def lifespan(app: FastAPI):
     # Shutdown (if needed)
 
 app = FastAPI(lifespan=lifespan)
+
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, list[WebSocket]] = {}
+
+    async def connect(self, username: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.setdefault(username, []).append(websocket)
+
+    def disconnect(self, username: str, websocket: WebSocket):
+        connections = self.active_connections.get(username, [])
+        if websocket in connections:
+            connections.remove(websocket)
+
+    async def send_to_user(self, username: str, payload: dict):
+        for websocket in list(self.active_connections.get(username, [])):
+            await websocket.send_json(payload)
+
+
+manager = ConnectionManager()
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=32)
@@ -148,7 +170,7 @@ def login(request: LoginRequest, db: Session = Depends(get_database)):
 
 
 @app.post("/send")
-def send_message(
+async def send_message(
     message_request: MessageRequest,
     db: Session = Depends(get_database),
     current_username: str = Depends(get_current_username),
@@ -170,15 +192,30 @@ def send_message(
     db.refresh(message)
 
     # push message to Redis inbox queue for fast retrieval for recipient
-    push_message_to_inbox(message_request.to, {
+    payload = {
         "id": message.id,
         "from": message_request.frm,
         "ciphertext": message_request.ciphertext,
         "prekey_id": message_request.prekey_id,
         "status": message.status,
-    })
+    }
+    push_message_to_inbox(message_request.to, payload)
+    await manager.send_to_user(message_request.to, payload)
     
     return {"status": "sent", "message_id": message.id}
+
+
+@app.websocket("/ws/{username}")
+async def websocket_endpoint(websocket: WebSocket, username: str, token: str):
+    username = normalize_username(username)
+    current_username = verify_access_token(token)
+    require_same_user(username, current_username)
+    await manager.connect(username, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(username, websocket)
 
 
 @app.get("/inbox/{username}")
