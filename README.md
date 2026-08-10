@@ -265,6 +265,10 @@ docker compose exec redis redis-cli
 docker compose up --build
 ```
 
+## CI/CD
+
+GitHub Actions runs the test suite against PostgreSQL and Redis service containers on pushes and pull requests. The pipeline also validates the Docker image build. Pushes to `main` publish a versioned image and `latest` tag to GitHub Container Registry.
+
 ## Future Enhancements
 
 - [ ] Automated tests (pytest)
