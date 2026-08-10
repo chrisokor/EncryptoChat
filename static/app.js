@@ -1,4 +1,11 @@
-const state = { username: "", token: "", contact: "", socket: null, contactPrekeyId: "" };
+const state = {
+  username: "",
+  token: "",
+  contact: "",
+  socket: null,
+  contactPrekeyId: "",
+  statusTimer: null,
+};
 const KEY_PREFIX = "encryptochat.demo.keys.";
 const encoder = new TextEncoder();
 
@@ -92,11 +99,14 @@ async function registerOrLogin() {
   await login(username, keys);
   state.username = username;
   document.querySelector("#authState").textContent = `Signed in as ${username}`;
-  document.querySelector("#fingerprint").textContent = `Key fingerprint: ${keys.encryptionPublic.slice(0, 16)}`;
+  document.querySelector("#fingerprint").textContent = "";
   connectSocket();
   await refreshPrekeyHealth();
   await loadInbox();
-  addStatus("API and WebSocket demo shell connected. Messages are demo envelopes.");
+  await refreshSentStatuses();
+  if (state.statusTimer) clearInterval(state.statusTimer);
+  state.statusTimer = setInterval(() => refreshSentStatuses().catch(reportError), 10000);
+  addStatus("Browser message bodies are base64-encoded plaintext and server-readable.");
 }
 
 async function generatePrekeys(count = 5) {
@@ -133,15 +143,41 @@ async function openContact() {
   if (!state.username) throw new Error("Register or log in first.");
   const contact = document.querySelector("#contactName").value.trim().toLowerCase();
   if (!contact) throw new Error("Enter a contact username.");
-  const keys = await api(`/users/${encodeURIComponent(contact)}/keys`);
+  const [profile, keys] = await Promise.all([
+    api(`/users/${encodeURIComponent(contact)}`),
+    api(`/users/${encodeURIComponent(contact)}/keys`),
+  ]);
   state.contact = keys.username;
   state.contactPrekeyId = keys.prekey.id;
   document.querySelector("#activeContact").textContent = `Chat with ${keys.username}`;
+  document.querySelector("#fingerprint").textContent = `Safety fingerprint: ${profile.fingerprint}`;
   addStatus(`Opened ${keys.username} with prekey ${keys.prekey.id.slice(0, 8)}.`);
 }
 
-function demoCiphertext(text) {
+function demoEnvelope(text) {
   return bytesToBase64(encoder.encode(`DEMO:${new Date().toISOString()}:${text}`));
+}
+
+async function refreshSentStatuses() {
+  if (!state.username) return;
+  const result = await api(`/messages/sent/${encodeURIComponent(state.username)}`);
+  const container = document.querySelector("#sentStatusList");
+  container.replaceChildren();
+
+  if (!result.messages.length) {
+    const empty = document.createElement("p");
+    empty.className = "status-item";
+    empty.textContent = "No sent messages.";
+    container.appendChild(empty);
+    return;
+  }
+
+  for (const message of result.messages) {
+    const item = document.createElement("p");
+    item.className = "status-item";
+    item.textContent = `Message ${message.id} to ${message.to}: ${message.status}`;
+    container.appendChild(item);
+  }
 }
 
 async function sendMessage(event) {
@@ -155,18 +191,19 @@ async function sendMessage(event) {
     body: JSON.stringify({
       to: state.contact,
       frm: state.username,
-      ciphertext: demoCiphertext(text),
+      ciphertext: demoEnvelope(text),
       prekey_id: state.contactPrekeyId,
     }),
   });
-  addMessage(`Sent demo envelope: ${text}`, true);
+  addMessage(`Sent base64 plaintext demo envelope: ${text}`, true);
   input.value = "";
   state.contactPrekeyId = "";
   addStatus(`Message ${result.message_id} sent. Open the contact again for another prekey.`);
+  await refreshSentStatuses();
 }
 
 async function handleIncoming(envelope) {
-  addMessage(`Encrypted envelope from ${envelope.from}: ${envelope.ciphertext}`);
+  addMessage(`Base64 plaintext demo envelope from ${envelope.from}: ${envelope.ciphertext}`);
   if (envelope.id) await api(`/messages/${envelope.id}/read`, { method: "POST" });
   addStatus(`Message ${envelope.id} marked read.`);
 }
@@ -192,4 +229,5 @@ function reportError(error) {
 document.querySelector("#registerBtn").addEventListener("click", () => registerOrLogin().catch(reportError));
 document.querySelector("#addContactBtn").addEventListener("click", () => openContact().catch(reportError));
 document.querySelector("#refillPrekeysBtn").addEventListener("click", () => refillPrekeys().catch(reportError));
+document.querySelector("#refreshStatusesBtn").addEventListener("click", () => refreshSentStatuses().catch(reportError));
 document.querySelector("#composer").addEventListener("submit", (event) => sendMessage(event).catch(reportError));

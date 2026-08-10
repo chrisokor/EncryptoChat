@@ -29,12 +29,16 @@
       </header>
       <div id="messages" class="messages"></div>
       <form id="composer">
-        <input id="messageText" aria-label="Encrypted message" autocomplete="off">
+        <input id="messageText" aria-label="Demo plaintext message" autocomplete="off">
         <button type="submit">Send</button>
       </form>
     </section>
     <aside class="details">
       <h2>Status</h2>
+      <button id="refreshStatusesBtn">Refresh Sent Status</button>
+      <h3>Sent messages</h3>
+      <div id="sentStatusList"></div>
+      <h3>Activity</h3>
       <div id="statusList"></div>
     </aside>
   </main>

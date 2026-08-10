@@ -6,6 +6,7 @@ from nacl.signing import SigningKey
 
 from server import ConnectionManager, manager, websocket_endpoint
 from utils.base_64_utils import bytes_to_base64_str
+from utils.redis_helper import push_message_to_inbox
 
 
 def register_and_login(client, username):
@@ -68,7 +69,7 @@ def test_send_message_rejects_invalid_ciphertext(client, registered_user):
     assert response.status_code == 422
 
 
-def test_inbox_marks_message_delivered(client, registered_user):
+def test_inbox_marks_message_delivered(client, registered_user, redis_client):
     sender = registered_user
     recipient = register_and_login(client, "Bob")
 
@@ -88,7 +89,7 @@ def test_inbox_marks_message_delivered(client, registered_user):
     assert statuses.json()["messages"][0]["status"] == "delivered"
 
 
-def test_mark_message_read_updates_status(client, registered_user):
+def test_mark_message_read_updates_status(client, registered_user, redis_client):
     sender = registered_user
     recipient = register_and_login(client, "Bob")
 
@@ -107,7 +108,7 @@ def test_mark_message_read_updates_status(client, registered_user):
 
 
 class TestSendMessage:
-    def test_websocket_receives_sent_message(self, client, registered_user):
+    def test_websocket_receives_sent_message(self, client, registered_user, redis_client):
         sender = registered_user
         recipient = register_and_login(client, "Bob")
 
@@ -123,6 +124,76 @@ class TestSendMessage:
 
         assert envelope["from"] == sender["username"]
         assert envelope["ciphertext"] == "YWJj"
+
+    def test_live_message_marked_read_is_not_polled_or_regressed(self, client, registered_user, redis_client):
+        sender = registered_user
+        recipient = register_and_login(client, "Bob")
+
+        with client.websocket_connect(f"/ws/{recipient['username']}?token={recipient['token']}") as websocket:
+            send = client.post("/send", headers={"Authorization": f"Bearer {sender['token']}"}, json={
+                "to": recipient["username"],
+                "frm": sender["username"],
+                "ciphertext": "YWJj",
+                "prekey_id": "prekey123",
+            })
+            envelope = websocket.receive_json()
+            read = client.post(
+                f"/messages/{envelope['id']}/read",
+                headers={"Authorization": f"Bearer {recipient['token']}"},
+            )
+
+        inbox = client.get(
+            f"/inbox/{recipient['username']}",
+            headers={"Authorization": f"Bearer {recipient['token']}"},
+        )
+        statuses = client.get(
+            f"/messages/sent/{sender['username']}",
+            headers={"Authorization": f"Bearer {sender['token']}"},
+        )
+
+        assert send.status_code == 200
+        assert read.status_code == 200
+        assert inbox.json()["inbox"] == []
+        assert statuses.json()["messages"][0]["status"] == "read"
+
+
+def test_inbox_poll_does_not_regress_read_status(client, registered_user, redis_client):
+    sender = registered_user
+    recipient = register_and_login(client, "Bob")
+    payload = {
+        "to": recipient["username"],
+        "frm": sender["username"],
+        "ciphertext": "YWJj",
+        "prekey_id": "prekey123",
+    }
+    send = client.post(
+        "/send",
+        headers={"Authorization": f"Bearer {sender['token']}"},
+        json=payload,
+    )
+    message_id = send.json()["message_id"]
+    client.post(
+        f"/messages/{message_id}/read",
+        headers={"Authorization": f"Bearer {recipient['token']}"},
+    )
+    push_message_to_inbox(recipient["username"], {
+        "id": message_id,
+        "from": sender["username"],
+        "ciphertext": payload["ciphertext"],
+        "prekey_id": payload["prekey_id"],
+        "status": "queued",
+    })
+
+    client.get(
+        f"/inbox/{recipient['username']}",
+        headers={"Authorization": f"Bearer {recipient['token']}"},
+    )
+    statuses = client.get(
+        f"/messages/sent/{sender['username']}",
+        headers={"Authorization": f"Bearer {sender['token']}"},
+    )
+
+    assert statuses.json()["messages"][0]["status"] == "read"
 
 
 class FailingWebSocket:

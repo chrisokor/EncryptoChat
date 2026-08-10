@@ -71,3 +71,34 @@ def test_prekey_health_reauthenticates_after_restored_token_returns_401(tmp_path
     assert restored_client.token == "fresh-token"
     assert json.loads((tmp_path / ".keys" / "alice.json").read_text())["token"] == "fresh-token"
     assert "unused prekeys: 4" in capsys.readouterr().out
+
+
+def test_handshake_authenticates_contact_prekey_lookup(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client = ChatClient("alice", prekey_count=0)
+    client.token = "alice-token"
+    peer_key = PrivateKey.generate().public_key
+    seen_headers = []
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {
+                "username": "bob",
+                "public_key": bytes_to_base64_str(bytes(peer_key)),
+                "prekey": None,
+            }
+
+        def raise_for_status(self):
+            pass
+
+    def fake_get(url, headers=None):
+        seen_headers.append(headers)
+        return Response()
+
+    monkeypatch.setattr("chat_client.requests.get", fake_get)
+
+    client.handshake_with("bob")
+
+    assert seen_headers == [{"Authorization": "Bearer alice-token"}]

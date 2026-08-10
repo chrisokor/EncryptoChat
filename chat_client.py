@@ -177,7 +177,7 @@ class ChatClient:
 
     # retrieve a peer's public key and create a Box (runs D-H inside)
     def handshake_with(self, peer: str):
-        r = requests.get(f"{API}/users/{peer}/keys")
+        r = self._protected_request(requests.get, f"{API}/users/{peer}/keys")
         r.raise_for_status()
         response_data = r.json()
 

@@ -1,20 +1,21 @@
 # EncryptoChat
 
-A secure end-to-end encrypted messaging system built with FastAPI, PostgreSQL, Redis, and NaCl cryptography.
+A messaging capstone built with FastAPI, PostgreSQL, Redis, WebSockets, and NaCl cryptography. The Python CLI provides the end-to-end encrypted PyNaCl client path; the browser is a separate, server-readable transport demo.
 
 ## Features
 
-- 🔐 **End-to-End Encryption**: Messages encrypted with NaCl Box (Curve25519 + XSalsa20 + Poly1305)
-- 🔑 **Prekey Exchange**: X3DH-style forward secrecy with one-time prekeys
+- 🔐 **CLI End-to-End Encryption**: Python CLI messages use NaCl Box (Curve25519 + XSalsa20 + Poly1305)
+- 🔑 **Prekey Exchange**: One-time prekeys establish Python CLI conversations
 - 🗄️ **PostgreSQL**: Durable storage for users, prekeys, and message audit logs
 - ⚡ **Redis**: Fast message queues for real-time inbox delivery
 - 🐳 **Docker**: One-command deployment with docker-compose
-- 🔒 **Zero-Knowledge**: Server cannot decrypt messages (private keys never leave client)
+- 🔒 **CLI Server Opacity**: The server receives ciphertext from PyNaCl CLI clients and does not receive their private keys
 
 ## What This Demonstrates
 
 - FastAPI API design with PostgreSQL and Redis.
-- End-to-end encrypted message envelopes using PyNaCl.
+- End-to-end encrypted Python CLI message envelopes using PyNaCl.
+- A dependency-free browser transport demo using explicitly server-readable plaintext envelopes.
 - Signed challenge authentication with Ed25519.
 - Real-time delivery over WebSockets.
 - CI/CD with integration tests and Docker image publishing.
@@ -22,7 +23,7 @@ A secure end-to-end encrypted messaging system built with FastAPI, PostgreSQL, R
 ## Architecture
 
 ```
-Client (Alice)                    Server (FastAPI)                   Client (Bob)
+PyNaCl CLI (Alice)               Server (FastAPI)               PyNaCl CLI (Bob)
     |                                  |                                  |
     |-- Register (public key) -------->|                                  |
     |<-------- OK ---------------------|                                  |
@@ -67,6 +68,15 @@ cd EncryptoChat
 ```
 
 ### 2. Start all services
+
+This version adds database columns through SQLAlchemy `create_all()` and does not include Alembic migrations. If Docker volumes were created by a pre-capstone version, reset them before startup. This permanently deletes the existing demo database and Redis data:
+
+```bash
+docker compose down -v
+```
+
+Then start the current version:
+
 ```bash
 docker compose up --build
 ```
@@ -163,16 +173,16 @@ Once the server is running, visit:
 | POST | `/register` | Register a new user with public key |
 | GET | `/auth/challenge/{username}` | Issue a one-time signing challenge |
 | POST | `/auth/login` | Exchange a signed challenge for a bearer token |
-| POST | `/send` | Send encrypted message |
+| POST | `/send` | Send a message envelope (CLI ciphertext or browser demo plaintext) |
 | GET | `/inbox/{username}` | Retrieve and clear inbox |
 | GET | `/inbox/{username}/count` | Get pending message count |
 | POST | `/messages/{message_id}/read` | Mark a delivered message as read |
 | GET | `/messages/sent/{username}` | List messages sent by a user |
-| GET | `/users/{username}` | Get user's public key |
-| GET | `/users/{username}/keys` | Get user's public key + prekey |
+| GET | `/users/{username}` | Get public identity keys and safety fingerprint |
+| GET | `/users/{username}/keys` | Authenticated consumption of a user's public key + prekey |
 | POST | `/users/{username}/prekeys` | Upload prekeys |
 | GET | `/users/{username}/prekeys/count` | Get available one-time prekey count |
-| WebSocket | `/ws/{username}?token={token}` | Receive real-time encrypted message envelopes |
+| WebSocket | `/ws/{username}?token={token}` | Receive real-time message envelopes |
 | GET | `/` | Open the browser demo shell |
 
 ## Client Commands
@@ -220,13 +230,16 @@ EncryptoChat/
 - **Key Derivation**: HSalsa20
 
 ### Implementation Details
-- Private keys stored locally in `.keys/` (never sent to server)
-- The demo browser client stores private keys in `localStorage`; this is a demo-only limitation and not suitable for production key storage.
-- The browser demo is a REST/WebSocket shell using valid demo ciphertext; it does not implement PyNaCl `Box`-compatible browser encryption, so its messages cannot be decrypted by the CLI client.
-- Prekey-based forward secrecy (one prekey per conversation)
+- PyNaCl CLI private keys are stored locally in `.keys/` and are never sent to the server.
+- Python CLI message bodies are end-to-end encrypted with PyNaCl `Box`; the server stores ciphertext and cannot decrypt that path without client private keys.
+- The browser demo stores its local identity material in `localStorage`, which is not suitable for production key storage.
+- Browser message bodies are base64-encoded plaintext demo envelopes. Base64 is reversible encoding, the server can read these bodies, and the browser path is not end-to-end encrypted or zero-knowledge.
+- The CLI uses one-time prekeys for conversation setup, but it retains prekey private keys and can reuse a session prekey for later messages. This design does not provide forward secrecy or a double ratchet.
 - Messages deleted from inbox after retrieval (ephemeral delivery)
-- PostgreSQL audit log for message history (encrypted ciphertext only)
+- PostgreSQL audit log containing CLI ciphertext or server-readable browser demo envelopes, depending on the client path.
 - Authentication challenges and bearer tokens are in-memory and process-local, so they do not survive an API restart or work across multiple API instances.
+- Prekey consumption requires authentication, but this demo has no per-user rate limiting; an authenticated account can still exhaust another user's published prekeys.
+- Schema changes are applied with `create_all()` only. Existing pre-capstone Docker volumes require the destructive `docker compose down -v` reset before this version starts.
 
 ## Environment Variables
 
@@ -301,4 +314,4 @@ MIT License - see LICENSE file for details
 
 ## Author
 
-Built as a demonstration of end-to-end encrypted messaging with modern web technologies.
+Built as a demonstration of a PyNaCl end-to-end encrypted CLI path plus a dependency-free browser transport demo.

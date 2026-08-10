@@ -1,3 +1,5 @@
+import base64
+import hashlib
 from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,7 +20,13 @@ from auth import (
     verify_access_token,
     verify_challenge_signature,
 )
-from utils.redis_helper import push_message_to_inbox, pop_all_inbox_messages, get_inbox_count
+from utils.redis_helper import (
+    get_inbox_count,
+    pop_all_inbox_messages,
+    push_message_to_inbox,
+    remove_message_from_inbox,
+    restore_inbox_messages,
+)
 from utils.validation import normalize_username, validate_base64_key, validate_ciphertext, validate_prekey_id
 
 # initialize database upon server start
@@ -141,6 +149,16 @@ def _normalize_path_username(username: str) -> str:
         raise HTTPException(422, str(exc)) from exc
 
 
+def _safety_fingerprint(public_key: str, signing_public_key: str | None) -> str:
+    identity_material = (
+        b"encryptochat-safety-fingerprint-v1\0"
+        + base64.b64decode(public_key)
+        + base64.b64decode(signing_public_key or "")
+    )
+    digest = hashlib.sha256(identity_material).hexdigest().upper()
+    return " ".join(digest[index:index + 4] for index in range(0, len(digest), 4))
+
+
 @app.post("/register")
 def register_user(request: RegisterRequest, db: Session = Depends(get_database)):
     existing = db.query(User).filter(User.username == request.username).first()
@@ -249,12 +267,21 @@ def get_inbox(
     inbox = pop_all_inbox_messages(username)
     message_ids = [item["id"] for item in inbox if "id" in item]
     if message_ids:
-        now = datetime.now(UTC)
-        db.query(Message).filter(Message.id.in_(message_ids), Message.to_user == username).update(
-            {"status": "delivered", "delivered_at": now},
-            synchronize_session=False,
-        )
-        db.commit()
+        try:
+            now = datetime.now(UTC)
+            db.query(Message).filter(
+                Message.id.in_(message_ids),
+                Message.to_user == username,
+                Message.status == "queued",
+            ).update(
+                {"status": "delivered", "delivered_at": now},
+                synchronize_session=False,
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            restore_inbox_messages(username, inbox)
+            raise
 
     return {"inbox": inbox}
 
@@ -291,6 +318,7 @@ def mark_message_read(
     if not message.delivered_at:
         message.delivered_at = message.read_at
     db.commit()
+    remove_message_from_inbox(message.to_user, message.id)
     return {"id": message.id, "status": message.status}
 
 
@@ -317,7 +345,12 @@ def get_user(username: str, db: Session = Depends(get_database)):
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
-    return {"username": user.username, "public_key": user.public_key}
+    return {
+        "username": user.username,
+        "public_key": user.public_key,
+        "signing_public_key": user.signing_public_key,
+        "fingerprint": _safety_fingerprint(user.public_key, user.signing_public_key),
+    }
 
 
 @app.post("/users/{username}/prekeys")
@@ -366,6 +399,7 @@ def _consume_prekey_for_user(username: str, db: Session):
         db.query(Prekey)
         .filter(Prekey.username == username, Prekey.used == False)
         .order_by(Prekey.created_at)
+        .with_for_update(skip_locked=True)
         .first()
     )
     if not prekey:
@@ -382,10 +416,18 @@ def _consume_prekey_for_user(username: str, db: Session):
 
 
 @app.get("/users/{username}/prekeys")
-def get_prekey(username: str, db: Session = Depends(get_database)):
+def get_prekey(
+    username: str,
+    db: Session = Depends(get_database),
+    _current_username: str = Depends(get_current_username),
+):
     return _consume_prekey_for_user(username, db)
 
 
 @app.get("/users/{username}/keys")
-def get_user_keys(username: str, db: Session = Depends(get_database)):
+def get_user_keys(
+    username: str,
+    db: Session = Depends(get_database),
+    _current_username: str = Depends(get_current_username),
+):
     return _consume_prekey_for_user(username, db)
