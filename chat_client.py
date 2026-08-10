@@ -123,9 +123,9 @@ class ChatClient:
         r.raise_for_status()
         
         self.authenticate()
-        r = requests.post(f"{API}/users/{self.username}/prekeys", json={
+        r = self._protected_request(requests.post, f"{API}/users/{self.username}/prekeys", json={
             "prekeys": self.prekeys_upload
-        }, headers=self._auth_headers())
+        })
         r.raise_for_status()
         print(f"[{self.username}] registered with [{len(self.prekeys_upload)}] prekeys")
 
@@ -148,10 +148,17 @@ class ChatClient:
             self.authenticate()
         return {"Authorization": f"Bearer {self.token}"}
 
+    def _protected_request(self, request, *args, **kwargs):
+        response = request(*args, headers=self._auth_headers(), **kwargs)
+        if response.status_code == 401:
+            self.authenticate()
+            response = request(*args, headers=self._auth_headers(), **kwargs)
+        return response
+
     def show_prekey_health(self):
-        response = requests.get(
+        response = self._protected_request(
+            requests.get,
             f"{API}/users/{self.username}/prekeys/count",
-            headers=self._auth_headers(),
         )
         response.raise_for_status()
         data = response.json()
@@ -159,9 +166,9 @@ class ChatClient:
 
     def refill_prekeys(self, count: int = 5):
         self._gen_prekeys(count)
-        response = requests.post(
+        response = self._protected_request(
+            requests.post,
             f"{API}/users/{self.username}/prekeys",
-            headers=self._auth_headers(),
             json={"prekeys": self.prekeys_upload},
         )
         response.raise_for_status()
@@ -204,19 +211,19 @@ class ChatClient:
         nonce = nacl_random(Box.NONCE_SIZE)
         ciphertext = box.encrypt(plaintext.encode(), nonce)
 
-        request = requests.post(f"{API}/send", json={
+        request = self._protected_request(requests.post, f"{API}/send", json={
             "to": to,
             "frm": self.username,
             "ciphertext": bytes_to_base64_str(ciphertext),
             "prekey_id": session["prekey_id"]
-        }, headers=self._auth_headers())
+        })
         request.raise_for_status()
         print(f"[{self.username}] -> [{to}] sent.")
 
 
     # retrieve inbox and decrypt messages
     def receive_all(self):
-        request = requests.get(f"{API}/inbox/{self.username}", headers=self._auth_headers())
+        request = self._protected_request(requests.get, f"{API}/inbox/{self.username}")
         request.raise_for_status()
         messages = request.json()["inbox"]
 
