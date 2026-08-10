@@ -85,6 +85,19 @@ def test_protected_routes_reject_invalid_token(client, registered_user):
     assert response.status_code == 401
 
 
+def test_protected_route_rejects_and_removes_expired_token(client, registered_user):
+    token = registered_user["token"]
+    auth._tokens[token]["expires_at"] = datetime.now(UTC) - timedelta(seconds=1)
+
+    response = client.get(
+        f"/inbox/{registered_user['username']}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    assert token not in auth._tokens
+
+
 def test_alice_token_cannot_send_as_bob(client):
     alice = register_and_login(client, "alice")
     bob = register_and_login(client, "bob")
