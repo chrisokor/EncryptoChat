@@ -1,4 +1,5 @@
 from nacl.public import PrivateKey
+from nacl.signing import SigningKey
 from utils.base_64_utils import bytes_to_base64_str
 
 
@@ -12,7 +13,8 @@ class TestGetUser:
 
         client.post("/register", json={
             "username": username,
-            "public_key": bytes_to_base64_str(bytes(user_public_key))
+            "public_key": bytes_to_base64_str(bytes(user_public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(SigningKey.generate().verify_key)),
         })
 
         # retrieve user via GET request

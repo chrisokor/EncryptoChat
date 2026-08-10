@@ -153,6 +153,8 @@ Once the server is running, visit:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/register` | Register a new user with public key |
+| GET | `/auth/challenge/{username}` | Issue a one-time signing challenge |
+| POST | `/auth/login` | Exchange a signed challenge for a bearer token |
 | POST | `/send` | Send encrypted message |
 | GET | `/inbox/{username}` | Retrieve and clear inbox |
 | GET | `/inbox/{username}/count` | Get pending message count |
@@ -206,6 +208,7 @@ EncryptoChat/
 
 ### Implementation Details
 - Private keys stored locally in `.keys/` (never sent to server)
+- The demo browser client stores private keys in `localStorage`; this is a demo-only limitation and not suitable for production key storage.
 - Prekey-based forward secrecy (one prekey per conversation)
 - Messages deleted from inbox after retrieval (ephemeral delivery)
 - PostgreSQL audit log for message history (encrypted ciphertext only)

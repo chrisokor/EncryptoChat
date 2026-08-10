@@ -1,6 +1,7 @@
 import pytest
 import uuid
 from nacl.public import PrivateKey
+from nacl.signing import SigningKey
 from utils.base_64_utils import bytes_to_base64_str
 from models.database_models import User
 
@@ -16,7 +17,8 @@ class TestUserRegistration:
         # make API request
         response = client.post("/register", json={
             "username": "Alice",
-            "public_key": bytes_to_base64_str(bytes(user_public_key))
+            "public_key": bytes_to_base64_str(bytes(user_public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(SigningKey.generate().verify_key)),
         })
 
         # assert successful response
@@ -33,7 +35,8 @@ class TestUserRegistration:
         # register user
         client.post("/register", json={
             "username": username,
-            "public_key": bytes_to_base64_str(bytes(user_public_key))
+            "public_key": bytes_to_base64_str(bytes(user_public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(SigningKey.generate().verify_key)),
         })
 
         # assert database can return the user
@@ -57,13 +60,15 @@ class TestUserRegistration:
         # register user 1 
         client.post("/register", json={
             "username": shared_username,
-            "public_key": bytes_to_base64_str(bytes(user1_public_key))
+            "public_key": bytes_to_base64_str(bytes(user1_public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(SigningKey.generate().verify_key)),
         })
 
         # retrieve response for registering user 2
         response = client.post("/register", json={
             "username": shared_username,
-            "public_key": bytes_to_base64_str(bytes(user2_public_key))
+            "public_key": bytes_to_base64_str(bytes(user2_public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(SigningKey.generate().verify_key)),
         })
          
         # assert response status code is 400 and returns "Username already exists."   
@@ -80,7 +85,8 @@ class TestUserRegistration:
         # register user and get response
         response = client.post("/register", json={
             "username": blank_username,
-            "public_key": bytes_to_base64_str(bytes(user_public_key))
+            "public_key": bytes_to_base64_str(bytes(user_public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(SigningKey.generate().verify_key)),
         })
          
         # assert response status code returns 422
@@ -95,7 +101,8 @@ class TestUserRegistration:
         # register user and get response
         response = client.post("/register", json={
             "username": username,
-            "public_key": blank_public_key
+            "public_key": blank_public_key,
+            "signing_public_key": bytes_to_base64_str(bytes(SigningKey.generate().verify_key)),
         })
 
         # assert response status is 422

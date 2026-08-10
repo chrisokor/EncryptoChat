@@ -7,7 +7,7 @@ class TestGetPrekey:
 
     def test_get_user_keys_alias_returns_and_consumes_prekey(self, client, registered_user, upload_prekeys):
         username = registered_user["username"]
-        uploaded = upload_prekeys(username)["prekeys"]
+        uploaded = upload_prekeys(registered_user)["prekeys"]
 
         response = client.get(f"/users/{username}/keys")
 
@@ -23,7 +23,7 @@ class TestGetPrekey:
     def test_get_prekey_returns_success(self, client, registered_user, upload_prekeys):
         # register user and upload prekeys
         username = registered_user["username"]
-        prekey_upload = upload_prekeys(username)
+        prekey_upload = upload_prekeys(registered_user)
 
         # get prekey 
         response = client.get(f"/users/{username}/prekeys")
@@ -38,7 +38,7 @@ class TestGetPrekey:
     def test_get_prekey_marks_prekey_as_used(self, client, db_session, registered_user, upload_prekeys):
         # register and upload keys
         username = registered_user["username"]
-        prekey_upload = upload_prekeys(username)
+        prekey_upload = upload_prekeys(registered_user)
 
         # get prekey and id
         response = client.get(f"/users/{username}/prekeys")
@@ -87,7 +87,7 @@ class TestGetPrekey:
 
         client.post(f"/users/{username}/prekeys", json={
             "prekeys": prekeys
-        })
+        }, headers={"Authorization": f"Bearer {registered_user['token']}"})
 
         # mark prekeys 1, 2, and 3
         prekey1, prekey2, prekey3 = prekeys[0], prekeys[1], prekeys[2]

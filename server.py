@@ -8,6 +8,13 @@ from datetime import datetime, UTC
 
 from database import init_database, get_database
 from models.database_models import User, Message, Prekey
+from auth import (
+    create_access_token,
+    create_challenge,
+    get_current_username,
+    require_same_user,
+    verify_challenge_signature,
+)
 from utils.redis_helper import push_message_to_inbox, pop_all_inbox_messages, get_inbox_count
 from utils.validation import normalize_username, validate_base64_key, validate_ciphertext, validate_prekey_id
 
@@ -24,7 +31,7 @@ app = FastAPI(lifespan=lifespan)
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=3, max_length=32)
     public_key: str
-    signing_public_key: str | None = None
+    signing_public_key: str
 
     @field_validator("username")
     @classmethod
@@ -39,9 +46,13 @@ class RegisterRequest(BaseModel):
     @field_validator("signing_public_key")
     @classmethod
     def validate_signing_public_key(cls, value):
-        if value is None:
-            return None
         return validate_base64_key(value, 32)
+
+
+class LoginRequest(BaseModel):
+    username: str
+    challenge: str
+    signature: str
 
 class MessageRequest(BaseModel):
     to: str
@@ -107,14 +118,42 @@ def register_user(request: RegisterRequest, db: Session = Depends(get_database))
     if not request.public_key:
         raise HTTPException(422, "Missing public key.")
 
-    user = User(username=request.username, public_key=request.public_key)
+    user = User(
+        username=request.username,
+        public_key=request.public_key,
+        signing_public_key=request.signing_public_key,
+    )
     db.add(user)
     db.commit()
     return {"status": "registered"}
 
 
+@app.get("/auth/challenge/{username}")
+def get_auth_challenge(username: str, db: Session = Depends(get_database)):
+    username = _normalize_path_username(username)
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(404, "User not found.")
+    return {"username": username, "challenge": create_challenge(username)}
+
+
+@app.post("/auth/login")
+def login(request: LoginRequest, db: Session = Depends(get_database)):
+    username = _normalize_path_username(request.username)
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not user.signing_public_key:
+        raise HTTPException(404, "User not found.")
+    verify_challenge_signature(username, request.challenge, request.signature, user.signing_public_key)
+    return {"access_token": create_access_token(username), "token_type": "bearer"}
+
+
 @app.post("/send")
-def send_message(message_request: MessageRequest, db: Session = Depends(get_database)):
+def send_message(
+    message_request: MessageRequest,
+    db: Session = Depends(get_database),
+    current_username: str = Depends(get_current_username),
+):
+    require_same_user(message_request.frm, current_username)
     recipient = db.query(User).filter(User.username == message_request.to).first()
     if not recipient:
         raise HTTPException(404, "Message recipient not found.")
@@ -140,11 +179,16 @@ def send_message(message_request: MessageRequest, db: Session = Depends(get_data
 
 
 @app.get("/inbox/{username}")
-def get_inbox(username: str, db: Session = Depends(get_database)):
+def get_inbox(
+    username: str,
+    db: Session = Depends(get_database),
+    current_username: str = Depends(get_current_username),
+):
     username = _normalize_path_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
+    require_same_user(username, current_username)
     
     # get messages from Redis queue (fast)
     inbox = pop_all_inbox_messages(username)
@@ -153,9 +197,14 @@ def get_inbox(username: str, db: Session = Depends(get_database)):
 
 
 @app.get("/inbox/{username}/count")
-def get_inbox_count_endpoint(username: str, db: Session = Depends(get_database)):
+def get_inbox_count_endpoint(
+    username: str,
+    db: Session = Depends(get_database),
+    current_username: str = Depends(get_current_username),
+):
     """Check how many pending messages without retrieving them"""
     username = _normalize_path_username(username)
+    require_same_user(username, current_username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
@@ -174,11 +223,17 @@ def get_user(username: str, db: Session = Depends(get_database)):
 
 
 @app.post("/users/{username}/prekeys")
-def upload_prekeys(username: str, body: PrekeyUpload, db: Session = Depends(get_database)):
+def upload_prekeys(
+    username: str,
+    body: PrekeyUpload,
+    db: Session = Depends(get_database),
+    current_username: str = Depends(get_current_username),
+):
     username = _normalize_path_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
+    require_same_user(username, current_username)
     
     if not body.prekeys:
         raise HTTPException(422, "Prekeys list cannot be empty.")

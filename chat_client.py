@@ -1,4 +1,5 @@
 from nacl.public import PrivateKey, Box, PublicKey
+from nacl.signing import SigningKey
 import requests
 import base64
 import os
@@ -22,6 +23,7 @@ class ChatClient:
         else:
             self.secret_key = PrivateKey.generate()
             self.public_key = self.secret_key.public_key
+            self.signing_key = SigningKey.generate()
             self.prekeys_to_privs: Dict[str, PrivateKey] = {}
             self._gen_prekeys(prekey_count)
             self._save_keys()
@@ -49,6 +51,7 @@ class ChatClient:
         data = {
             "secret_key": bytes_to_base64_str(bytes(self.secret_key)),
             "public_key": bytes_to_base64_str(bytes(self.public_key)),
+            "signing_key": bytes_to_base64_str(bytes(self.signing_key)),
             "prekeys": {}
         }
 
@@ -67,6 +70,7 @@ class ChatClient:
 
         self.secret_key = PrivateKey(base64_str_to_bytes(data["secret_key"]))
         self.public_key = PublicKey(base64_str_to_bytes(data["public_key"]))
+        self.signing_key = SigningKey(base64_str_to_bytes(data["signing_key"]))
 
         # load prekey private keys
         self.prekeys_to_privs = {}
@@ -85,18 +89,38 @@ class ChatClient:
     def register(self):
         r = requests.post(f"{API}/register", json={
             "username": self.username,
-            "public_key": bytes_to_base64_str(bytes(self.public_key))
+            "public_key": bytes_to_base64_str(bytes(self.public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(self.signing_key.verify_key)),
         })
         if r.status_code == 400:
             print(f"[{self.username}] is already registered.")
             return
         r.raise_for_status()
         
+        self._login()
         r = requests.post(f"{API}/users/{self.username}/prekeys", json={
             "prekeys": self.prekeys_upload
-        })
+        }, headers=self._auth_headers())
         r.raise_for_status()
         print(f"[{self.username}] registered with [{len(self.prekeys_upload)}] prekeys")
+
+    def _login(self):
+        response = requests.get(f"{API}/auth/challenge/{self.username}")
+        response.raise_for_status()
+        challenge = response.json()["challenge"]
+        signature = self.signing_key.sign(challenge.encode()).signature
+        response = requests.post(f"{API}/auth/login", json={
+            "username": self.username,
+            "challenge": challenge,
+            "signature": bytes_to_base64_str(signature),
+        })
+        response.raise_for_status()
+        self.access_token = response.json()["access_token"]
+
+    def _auth_headers(self):
+        if not hasattr(self, "access_token"):
+            self._login()
+        return {"Authorization": f"Bearer {self.access_token}"}
 
     # retrieve a peer's public key and create a Box (runs D-H inside)
     def handshake_with(self, peer: str):
@@ -139,14 +163,14 @@ class ChatClient:
             "frm": self.username,
             "ciphertext": bytes_to_base64_str(ciphertext),
             "prekey_id": session["prekey_id"]
-        })
+        }, headers=self._auth_headers())
         request.raise_for_status()
         print(f"[{self.username}] -> [{to}] sent.")
 
 
     # retrieve inbox and decrypt messages
     def receive_all(self):
-        request = requests.get(f"{API}/inbox/{self.username}")
+        request = requests.get(f"{API}/inbox/{self.username}", headers=self._auth_headers())
         request.raise_for_status()
         messages = request.json()["inbox"]
 
@@ -193,5 +217,4 @@ class ChatClient:
             except Exception as e:
                 print(f"[{self.username}] Failed to decrypt message from [{frm}]: {e}")
                
-
 
