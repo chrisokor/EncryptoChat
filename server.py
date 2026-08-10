@@ -167,15 +167,18 @@ def send_message(
     )
     db.add(message)
     db.commit()
+    db.refresh(message)
 
     # push message to Redis inbox queue for fast retrieval for recipient
     push_message_to_inbox(message_request.to, {
+        "id": message.id,
         "from": message_request.frm,
         "ciphertext": message_request.ciphertext,
-        "prekey_id": message_request.prekey_id
+        "prekey_id": message_request.prekey_id,
+        "status": message.status,
     })
     
-    return {"status": "sent"}
+    return {"status": "sent", "message_id": message.id}
 
 
 @app.get("/inbox/{username}")
@@ -192,6 +195,14 @@ def get_inbox(
     
     # get messages from Redis queue (fast)
     inbox = pop_all_inbox_messages(username)
+    message_ids = [item["id"] for item in inbox if "id" in item]
+    if message_ids:
+        now = datetime.now(UTC)
+        db.query(Message).filter(Message.id.in_(message_ids), Message.to_user == username).update(
+            {"status": "delivered", "delivered_at": now},
+            synchronize_session=False,
+        )
+        db.commit()
 
     return {"inbox": inbox}
 
@@ -211,6 +222,41 @@ def get_inbox_count_endpoint(
     
     count = get_inbox_count(username)
     return {"username": username, "count": count}
+
+
+@app.post("/messages/{message_id}/read")
+def mark_message_read(
+    message_id: int,
+    db: Session = Depends(get_database),
+    current_username: str = Depends(get_current_username),
+):
+    message = db.query(Message).filter(Message.id == message_id).first()
+    if not message:
+        raise HTTPException(404, "Message not found.")
+    require_same_user(message.to_user, current_username)
+    message.status = "read"
+    message.read_at = datetime.now(UTC)
+    if not message.delivered_at:
+        message.delivered_at = message.read_at
+    db.commit()
+    return {"id": message.id, "status": message.status}
+
+
+@app.get("/messages/sent/{username}")
+def get_sent_messages(
+    username: str,
+    db: Session = Depends(get_database),
+    current_username: str = Depends(get_current_username),
+):
+    username = _normalize_path_username(username)
+    require_same_user(username, current_username)
+    rows = db.query(Message).filter(Message.from_user == username).order_by(Message.created_at.desc()).all()
+    return {"messages": [{
+        "id": row.id,
+        "to": row.to_user,
+        "status": row.status,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    } for row in rows]}
 
 
 @app.get("/users/{username}")
