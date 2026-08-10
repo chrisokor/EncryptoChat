@@ -135,21 +135,35 @@ def upload_prekeys(username: str, body: PrekeyUpload, db: Session = Depends(get_
     count = db.query(Prekey).filter(Prekey.username == username, Prekey.used == False).count()
     return {"ok": True, "count": count}
 
-
-@app.get("/users/{username}/prekeys")
-def get_prekey(username: str, db: Session = Depends(get_database)):
+def _consume_prekey_for_user(username: str, db: Session):
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
-    
-    prekey = db.query(Prekey).filter(Prekey.username == username, Prekey.used == False).order_by(Prekey.created_at).first()
 
-    if prekey:
-        prekey.used = True
-        prekey.used_at = datetime.now(UTC)
-        db.commit()
-        prekey_data = {"id": prekey.id, "key": prekey.key}
-    else:
+    prekey = (
+        db.query(Prekey)
+        .filter(Prekey.username == username, Prekey.used == False)
+        .order_by(Prekey.created_at)
+        .first()
+    )
+    if not prekey:
         raise HTTPException(410, "No prekeys available.")
 
-    return {"username": user.username, "public_key": user.public_key, "prekey": prekey_data}
+    prekey.used = True
+    prekey.used_at = datetime.now(UTC)
+    db.commit()
+    return {
+        "username": user.username,
+        "public_key": user.public_key,
+        "prekey": {"id": prekey.id, "key": prekey.key},
+    }
+
+
+@app.get("/users/{username}/prekeys")
+def get_prekey(username: str, db: Session = Depends(get_database)):
+    return _consume_prekey_for_user(username, db)
+
+
+@app.get("/users/{username}/keys")
+def get_user_keys(username: str, db: Session = Depends(get_database)):
+    return _consume_prekey_for_user(username, db)

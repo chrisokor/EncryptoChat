@@ -5,6 +5,16 @@ from uuid import uuid4
 
 class TestGetPrekey:
 
+    def test_get_user_keys_alias_returns_and_consumes_prekey(self, client, registered_user, upload_prekeys):
+        username = registered_user["username"]
+        uploaded = upload_prekeys(username)["prekeys"]
+
+        response = client.get(f"/users/{username}/keys")
+
+        assert response.status_code == 200
+        assert response.json()["username"] == username
+        assert response.json()["prekey"]["id"] == uploaded[0]["id"]
+
     def test_get_prekey_returns_success(self, client, registered_user, upload_prekeys):
         # register user and upload prekeys
         username = registered_user["username"]
@@ -90,4 +100,3 @@ class TestGetPrekey:
         response = client.get(f"/users/{username}/prekeys")
         prekey_id = response.json()["prekey"]["id"]
         assert prekey_id == prekey3["id"]
-

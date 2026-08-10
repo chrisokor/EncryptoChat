@@ -10,7 +10,7 @@ if __name__ == '__main__':
     python client_demo.py bob
     '''
 
-    name = sys.argv[1] if len(sys.argv[1]) > 1 else "alice"
+    name = sys.argv[1] if len(sys.argv) > 1 else "alice"
     client = ChatClient(name)
 
 
@@ -26,11 +26,10 @@ if __name__ == '__main__':
             client.send_message(peer, f"hello from {name}")
         elif command.startswith("msg "):
             _, peer, *words = command.split()
-            if peer not in client.shared_boxes:
+            if peer not in client.sessions:
                 client.handshake_with(peer)
             client.send_message(peer, " ".join(words))
         elif command in ("quit", "exit"):
             break
         else:
             print("commands: 'hi <peer>' to start, 'msg <peer> <text>', 'inbox', 'exit'")
-
