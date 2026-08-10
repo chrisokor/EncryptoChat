@@ -20,6 +20,12 @@ if __name__ == '__main__':
         command = input(f"{name}> ").strip()
         if command == "inbox":
             client.receive_all()
+        elif command == "prekeys":
+            client.show_prekey_health()
+        elif command.startswith("refill"):
+            parts = command.split()
+            count = int(parts[1]) if len(parts) > 1 else 5
+            client.refill_prekeys(count)
         elif command.startswith("hi "):
             peer = command.split()[1]
             client.handshake_with(peer)

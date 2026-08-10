@@ -292,6 +292,18 @@ def upload_prekeys(
     count = db.query(Prekey).filter(Prekey.username == username, Prekey.used == False).count()
     return {"ok": True, "count": count}
 
+
+@app.get("/users/{username}/prekeys/count")
+def get_prekey_count(
+    username: str,
+    db: Session = Depends(get_database),
+    current_username: str = Depends(get_current_username),
+):
+    username = _normalize_path_username(username)
+    require_same_user(username, current_username)
+    count = db.query(Prekey).filter(Prekey.username == username, Prekey.used == False).count()
+    return {"username": username, "count": count, "low": count < 3}
+
 def _consume_prekey_for_user(username: str, db: Session):
     username = _normalize_path_username(username)
     user = db.query(User).filter(User.username == username).first()

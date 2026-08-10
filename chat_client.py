@@ -25,6 +25,8 @@ class ChatClient:
             self.secret_key = PrivateKey.generate()
             self.public_key = self.secret_key.public_key
             self.signing_key = SigningKey.generate()
+            self.signing_public_key = self.signing_key.verify_key
+            self.token = None
             self.prekeys_to_privs: Dict[str, PrivateKey] = {}
             self._gen_prekeys(prekey_count)
             self._save_keys()
@@ -53,6 +55,8 @@ class ChatClient:
             "secret_key": bytes_to_base64_str(bytes(self.secret_key)),
             "public_key": bytes_to_base64_str(bytes(self.public_key)),
             "signing_key": bytes_to_base64_str(bytes(self.signing_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(self.signing_public_key)),
+            "token": getattr(self, "token", None),
             "prekeys": {}
         }
 
@@ -77,6 +81,8 @@ class ChatClient:
         else:
             self.signing_key = SigningKey.generate()
             self._legacy_signing_key_generated = True
+        self.signing_public_key = self.signing_key.verify_key
+        self.token = data.get("token")
 
         # load prekey private keys
         self.prekeys_to_privs = {}
@@ -104,7 +110,7 @@ class ChatClient:
         r = requests.post(f"{API}/register", json={
             "username": self.username,
             "public_key": bytes_to_base64_str(bytes(self.public_key)),
-            "signing_public_key": bytes_to_base64_str(bytes(self.signing_key.verify_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(self.signing_public_key)),
         })
         if r.status_code == 400:
             print(f"[{self.username}] is already registered.")
@@ -116,30 +122,51 @@ class ChatClient:
             return
         r.raise_for_status()
         
-        self._login()
+        self.authenticate()
         r = requests.post(f"{API}/users/{self.username}/prekeys", json={
             "prekeys": self.prekeys_upload
         }, headers=self._auth_headers())
         r.raise_for_status()
         print(f"[{self.username}] registered with [{len(self.prekeys_upload)}] prekeys")
 
-    def _login(self):
-        response = requests.get(f"{API}/auth/challenge/{self.username}")
-        response.raise_for_status()
-        challenge = response.json()["challenge"]
+    def authenticate(self):
+        challenge_response = requests.get(f"{API}/auth/challenge/{self.username}")
+        challenge_response.raise_for_status()
+        challenge = challenge_response.json()["challenge"]
         signature = self.signing_key.sign(challenge.encode()).signature
-        response = requests.post(f"{API}/auth/login", json={
+        login = requests.post(f"{API}/auth/login", json={
             "username": self.username,
             "challenge": challenge,
             "signature": bytes_to_base64_str(signature),
         })
-        response.raise_for_status()
-        self.access_token = response.json()["access_token"]
+        login.raise_for_status()
+        self.token = login.json()["access_token"]
+        self._save_keys()
 
     def _auth_headers(self):
-        if not hasattr(self, "access_token"):
-            self._login()
-        return {"Authorization": f"Bearer {self.access_token}"}
+        if not getattr(self, "token", None):
+            self.authenticate()
+        return {"Authorization": f"Bearer {self.token}"}
+
+    def show_prekey_health(self):
+        response = requests.get(
+            f"{API}/users/{self.username}/prekeys/count",
+            headers=self._auth_headers(),
+        )
+        response.raise_for_status()
+        data = response.json()
+        print(f"[{self.username}] unused prekeys: {data['count']}")
+
+    def refill_prekeys(self, count: int = 5):
+        self._gen_prekeys(count)
+        response = requests.post(
+            f"{API}/users/{self.username}/prekeys",
+            headers=self._auth_headers(),
+            json={"prekeys": self.prekeys_upload},
+        )
+        response.raise_for_status()
+        self._save_keys()
+        print(f"[{self.username}] uploaded {count} prekeys")
 
     # retrieve a peer's public key and create a Box (runs D-H inside)
     def handshake_with(self, peer: str):

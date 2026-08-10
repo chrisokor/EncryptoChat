@@ -5,6 +5,19 @@ from uuid import uuid4
 
 class TestGetPrekey:
 
+    def test_prekey_count_reports_unused_prekeys(self, client, registered_user, upload_prekeys):
+        user = registered_user
+        upload_prekeys(user, count=2)
+
+        response = client.get(
+            f"/users/{user['username']}/prekeys/count",
+            headers={"Authorization": f"Bearer {user['token']}"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["count"] == 2
+        assert response.json()["low"] is True
+
     def test_get_user_keys_alias_returns_and_consumes_prekey(self, client, registered_user, upload_prekeys):
         username = registered_user["username"]
         uploaded = upload_prekeys(registered_user)["prekeys"]
