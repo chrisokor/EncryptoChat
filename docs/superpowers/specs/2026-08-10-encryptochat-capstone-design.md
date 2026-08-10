@@ -23,6 +23,7 @@ The capstone version will include:
 - Prekey count endpoint and low-prekey warnings.
 - Contact safety fingerprints.
 - A browser demo with register/login, contacts, chat, message status, prekey health, and safety fingerprint views.
+- CI/CD that runs integration tests and publishes a tested Docker image from `main`.
 - A learning document that explains how the project works and how to discuss it on a resume or in interviews.
 
 The project will remain an educational secure-messaging demo, not a production Signal replacement.
@@ -184,6 +185,18 @@ Development will use test-driven changes for backend behavior. Key tests:
 
 Frontend behavior will be manually verified through the browser demo after backend tests pass.
 
+## CI/CD Design
+
+The existing GitHub Actions CI pipeline will be expanded into lightweight CI/CD:
+
+- Pull requests and pushes continue to run tests against PostgreSQL and Redis service containers.
+- CI validates that the Docker image builds successfully.
+- Pushes to `main` publish a Docker image to GitHub Container Registry.
+- Published image tags include the commit SHA and `latest`.
+- Hosted deployment remains out of scope until a target platform is chosen.
+
+This supports honest resume language: the project has CI/CD with tested container artifact publishing, not a claimed production deployment.
+
 ## Documentation Deliverables
 
 Update `README.md` with:
@@ -203,6 +216,7 @@ Create `docs/LEARNING_GUIDE.md` with:
 - Message lifecycle from send to read.
 - WebSocket and Redis delivery explanation.
 - Database schema explanation.
+- CI/CD pipeline explanation.
 - Tradeoffs and limitations.
 - Resume bullets.
 - Interview questions and strong answers.
@@ -217,8 +231,9 @@ Create `docs/LEARNING_GUIDE.md` with:
 5. Add prekey health endpoint and client warnings.
 6. Add WebSocket delivery.
 7. Add static browser demo.
-8. Update README and create learning guide.
-9. Run full test suite and manual demo verification.
+8. Expand CI/CD to validate Docker builds and publish images from `main`.
+9. Update README and create learning guide.
+10. Run full test suite and manual demo verification.
 
 ## Success Criteria
 
@@ -227,4 +242,5 @@ Create `docs/LEARNING_GUIDE.md` with:
 - CLI can register two users and exchange encrypted messages.
 - Browser demo can register/login, send, receive, and show prekey/fingerprint/status information.
 - Unauthorized users cannot send as or read another user.
+- CI validates tests and Docker build; `main` publishes a Docker image to GitHub Container Registry.
 - Documentation clearly explains what was built, how it works, and what its security limits are.
