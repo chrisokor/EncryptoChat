@@ -16,7 +16,7 @@ def test_send_message_rejects_invalid_ciphertext(client, registered_user):
         "to": recipient,
         "frm": sender["username"],
         "ciphertext": "not-base64",
-        "prekey_id": "abc",
+        "prekey_id": "prekey_01",
     })
 
     assert response.status_code == 422

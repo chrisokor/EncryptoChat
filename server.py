@@ -87,6 +87,14 @@ user_database: Dict[str, str] = {} # username -> public key
 messages: Dict[str, List[dict]] = {} # username -> list of messages
 prekeys_store: Dict[str, List[Prekey]] = {} # username -> queued public prekeys
 
+
+def _normalize_path_username(username: str) -> str:
+    try:
+        return normalize_username(username)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @app.post("/register")
 def register_user(request: RegisterRequest, db: Session = Depends(get_database)):
     existing = db.query(User).filter(User.username == request.username).first()
@@ -133,7 +141,7 @@ def send_message(message_request: MessageRequest, db: Session = Depends(get_data
 
 @app.get("/inbox/{username}")
 def get_inbox(username: str, db: Session = Depends(get_database)):
-    username = normalize_username(username)
+    username = _normalize_path_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
@@ -147,7 +155,7 @@ def get_inbox(username: str, db: Session = Depends(get_database)):
 @app.get("/inbox/{username}/count")
 def get_inbox_count_endpoint(username: str, db: Session = Depends(get_database)):
     """Check how many pending messages without retrieving them"""
-    username = normalize_username(username)
+    username = _normalize_path_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
@@ -158,7 +166,7 @@ def get_inbox_count_endpoint(username: str, db: Session = Depends(get_database))
 
 @app.get("/users/{username}")
 def get_user(username: str, db: Session = Depends(get_database)):
-    username = normalize_username(username)
+    username = _normalize_path_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
@@ -167,7 +175,7 @@ def get_user(username: str, db: Session = Depends(get_database)):
 
 @app.post("/users/{username}/prekeys")
 def upload_prekeys(username: str, body: PrekeyUpload, db: Session = Depends(get_database)):
-    username = normalize_username(username)
+    username = _normalize_path_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
@@ -184,7 +192,7 @@ def upload_prekeys(username: str, body: PrekeyUpload, db: Session = Depends(get_
     return {"ok": True, "count": count}
 
 def _consume_prekey_for_user(username: str, db: Session):
-    username = normalize_username(username)
+    username = _normalize_path_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")

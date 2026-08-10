@@ -34,3 +34,11 @@ class TestGetUser:
         # assert response status code is 404 and returns "User not found."
         assert response.status_code == 404
         assert response.json()["detail"] == "User not found."
+
+    def test_get_user_with_invalid_username_returns_422(self, client):
+        response = client.get("/users/1bad")
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == (
+            "Username must start with a letter and contain 3-32 letters, numbers, or underscores."
+        )
