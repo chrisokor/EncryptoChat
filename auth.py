@@ -11,9 +11,32 @@ from settings import settings
 
 _challenges = {}
 _tokens = {}
+MAX_CHALLENGES = 10_000
+MAX_TOKENS = 10_000
+
+
+def _purge_expired_challenges() -> None:
+    now = datetime.now(UTC)
+    for key, expires_at in list(_challenges.items()):
+        if expires_at < now:
+            del _challenges[key]
+
+
+def _purge_expired_tokens() -> None:
+    now = datetime.now(UTC)
+    for token, data in list(_tokens.items()):
+        if data["expires_at"] < now:
+            del _tokens[token]
+
+
+def _make_room(store: dict, limit: int) -> None:
+    while len(store) >= limit:
+        store.pop(next(iter(store)))
 
 
 def create_challenge(username: str) -> str:
+    _purge_expired_challenges()
+    _make_room(_challenges, MAX_CHALLENGES)
     challenge = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + timedelta(seconds=settings.challenge_ttl_seconds)
     _challenges[(username, challenge)] = expires_at
@@ -39,6 +62,8 @@ def verify_challenge_signature(
 
 
 def create_access_token(username: str) -> str:
+    _purge_expired_tokens()
+    _make_room(_tokens, MAX_TOKENS)
     token = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + timedelta(seconds=settings.token_ttl_seconds)
     _tokens[token] = {"username": username, "expires_at": expires_at}
@@ -47,7 +72,10 @@ def create_access_token(username: str) -> str:
 
 def verify_access_token(token: str) -> str:
     data = _tokens.get(token)
-    if not data or data["expires_at"] < datetime.now(UTC):
+    if not data:
+        raise HTTPException(401, "Invalid or expired token.")
+    if data["expires_at"] < datetime.now(UTC):
+        del _tokens[token]
         raise HTTPException(401, "Invalid or expired token.")
     return data["username"]
 

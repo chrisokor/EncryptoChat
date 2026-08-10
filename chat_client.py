@@ -15,6 +15,7 @@ class ChatClient:
     def __init__(self, username: str, prekey_count: int = 5):
         self.username = username
         self.keyfile = f".keys/{username}.json"
+        self._legacy_signing_key_generated = False
 
         # load or generate main keys
         if os.path.exists(self.keyfile):
@@ -70,7 +71,12 @@ class ChatClient:
 
         self.secret_key = PrivateKey(base64_str_to_bytes(data["secret_key"]))
         self.public_key = PublicKey(base64_str_to_bytes(data["public_key"]))
-        self.signing_key = SigningKey(base64_str_to_bytes(data["signing_key"]))
+        signing_key = data.get("signing_key")
+        if signing_key:
+            self.signing_key = SigningKey(base64_str_to_bytes(signing_key))
+        else:
+            self.signing_key = SigningKey.generate()
+            self._legacy_signing_key_generated = True
 
         # load prekey private keys
         self.prekeys_to_privs = {}
@@ -84,6 +90,14 @@ class ChatClient:
                 "key": bytes_to_base64_str(bytes(pub_key))
             })
 
+        if self._legacy_signing_key_generated:
+            self._save_keys()
+            print(
+                f"[{self.username}] Legacy key file migrated: generated a new signing key. "
+                "If this account already exists on the server, reset or re-register it "
+                "because the server does not have this signing public key."
+            )
+
 
     # register a user - generate their public key
     def register(self):
@@ -94,6 +108,11 @@ class ChatClient:
         })
         if r.status_code == 400:
             print(f"[{self.username}] is already registered.")
+            if self._legacy_signing_key_generated:
+                print(
+                    f"[{self.username}] Recovery required: the existing server account predates "
+                    "signing authentication. Reset or re-register the account to store this signing key."
+                )
             return
         r.raise_for_status()
         
@@ -217,4 +236,3 @@ class ChatClient:
             except Exception as e:
                 print(f"[{self.username}] Failed to decrypt message from [{frm}]: {e}")
                
-
