@@ -1,6 +1,10 @@
+import asyncio
+
+import pytest
 from nacl.public import PrivateKey
 from nacl.signing import SigningKey
 
+from server import ConnectionManager, manager, websocket_endpoint
 from utils.base_64_utils import bytes_to_base64_str
 
 
@@ -119,3 +123,48 @@ class TestSendMessage:
 
         assert envelope["from"] == sender["username"]
         assert envelope["ciphertext"] == "YWJj"
+
+
+class FailingWebSocket:
+    async def send_json(self, payload):
+        raise RuntimeError("socket closed")
+
+
+class RecordingWebSocket:
+    def __init__(self):
+        self.payloads = []
+
+    async def send_json(self, payload):
+        self.payloads.append(payload)
+
+
+class ReceiveFailureWebSocket:
+    async def accept(self):
+        pass
+
+    async def receive_text(self):
+        raise RuntimeError("receive failed")
+
+
+def test_connection_manager_removes_failed_socket_and_continues_broadcasting():
+    connection_manager = ConnectionManager()
+    failed_socket = FailingWebSocket()
+    active_socket = RecordingWebSocket()
+    payload = {"ciphertext": "YWJj"}
+    connection_manager.active_connections["bob"] = [failed_socket, active_socket]
+
+    asyncio.run(connection_manager.send_to_user("bob", payload))
+
+    assert connection_manager.active_connections["bob"] == [active_socket]
+    assert active_socket.payloads == [payload]
+
+
+def test_websocket_endpoint_removes_connection_after_receive_error(client, registered_user):
+    username = registered_user["username"]
+    websocket = ReceiveFailureWebSocket()
+    manager.active_connections.clear()
+
+    with pytest.raises(RuntimeError, match="receive failed"):
+        asyncio.run(websocket_endpoint(websocket, username, registered_user["token"]))
+
+    assert username not in manager.active_connections

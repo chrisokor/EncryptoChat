@@ -42,10 +42,15 @@ class ConnectionManager:
         connections = self.active_connections.get(username, [])
         if websocket in connections:
             connections.remove(websocket)
+        if not connections:
+            self.active_connections.pop(username, None)
 
     async def send_to_user(self, username: str, payload: dict):
         for websocket in list(self.active_connections.get(username, [])):
-            await websocket.send_json(payload)
+            try:
+                await websocket.send_json(payload)
+            except Exception:
+                self.disconnect(username, websocket)
 
 
 manager = ConnectionManager()
@@ -215,6 +220,8 @@ async def websocket_endpoint(websocket: WebSocket, username: str, token: str):
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         manager.disconnect(username, websocket)
 
 
