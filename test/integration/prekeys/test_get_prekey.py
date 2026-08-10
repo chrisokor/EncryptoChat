@@ -15,6 +15,11 @@ class TestGetPrekey:
         assert response.json()["username"] == username
         assert response.json()["prekey"]["id"] == uploaded[0]["id"]
 
+        next_response = client.get(f"/users/{username}/keys")
+
+        assert next_response.status_code == 200
+        assert next_response.json()["prekey"]["id"] == uploaded[1]["id"]
+
     def test_get_prekey_returns_success(self, client, registered_user, upload_prekeys):
         # register user and upload prekeys
         username = registered_user["username"]
