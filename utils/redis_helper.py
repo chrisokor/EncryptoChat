@@ -1,10 +1,36 @@
-import os
 import json
 import redis
-from typing import List, Dict, Optional
+from typing import List, Dict
+from settings import settings
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
-redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+
+_DRAIN_INBOX_SCRIPT = """
+local messages = redis.call('LRANGE', KEYS[1], 0, -1)
+if #messages > 0 then
+    redis.call('DEL', KEYS[1])
+end
+return messages
+"""
+
+_REMOVE_MESSAGE_SCRIPT = """
+local messages = redis.call('LRANGE', KEYS[1], 0, -1)
+if #messages == 0 then
+    return 0
+end
+
+redis.call('DEL', KEYS[1])
+local removed = 0
+for _, message in ipairs(messages) do
+    local ok, envelope = pcall(cjson.decode, message)
+    if ok and tostring(envelope.id) == ARGV[1] then
+        removed = removed + 1
+    else
+        redis.call('RPUSH', KEYS[1], message)
+    end
+end
+return removed
+"""
 
 def _inbox_key(username: str) -> str:
     """Generate Redis key for user's inbox queue"""
@@ -17,19 +43,28 @@ def push_message_to_inbox(username: str, message: Dict) -> int:
 
 
 def pop_all_inbox_messages(username: str) -> List[Dict]:
-    """Pop all messages from user's inbox and return them"""
+    """Atomically drain all messages from a user's inbox."""
     key = _inbox_key(username)
-    messages = []
+    raw_messages = redis_client.eval(_DRAIN_INBOX_SCRIPT, 1, key)
+    return [json.loads(message) for message in raw_messages]
 
-    # get all messages
-    raw_messages = redis_client.lrange(key, 0, -1)
 
-    # delete list
-    if raw_messages:
-        redis_client.delete(key)
-        messages = [json.loads(message) for message in raw_messages]
-    
-    return messages
+def restore_inbox_messages(username: str, messages: List[Dict]) -> int:
+    """Restore a failed drain ahead of messages queued after it."""
+    if not messages:
+        return 0
+    serialized = [json.dumps(message) for message in reversed(messages)]
+    return redis_client.lpush(_inbox_key(username), *serialized)
+
+
+def remove_message_from_inbox(username: str, message_id: int) -> int:
+    """Atomically remove every queued copy of a message."""
+    return redis_client.eval(
+        _REMOVE_MESSAGE_SCRIPT,
+        1,
+        _inbox_key(username),
+        str(message_id),
+    )
 
 def get_inbox_count(username: str) -> int:
     """Get count of pending messages in inbox"""

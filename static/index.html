@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>EncryptoChat</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="app-shell">
+    <aside class="sidebar">
+      <h1>EncryptoChat</h1>
+      <section class="panel">
+        <input id="username" aria-label="Username" autocomplete="username">
+        <button id="registerBtn">Register / Login</button>
+        <p id="authState">Signed out</p>
+      </section>
+      <section class="panel">
+        <input id="contactName" aria-label="Contact username">
+        <button id="addContactBtn">Open Contact</button>
+        <div id="prekeyHealth"></div>
+        <button id="refillPrekeysBtn">Refill Prekeys</button>
+      </section>
+    </aside>
+    <section class="chat">
+      <header>
+        <h2 id="activeContact">No contact selected</h2>
+        <p id="fingerprint"></p>
+      </header>
+      <div id="messages" class="messages"></div>
+      <form id="composer">
+        <input id="messageText" aria-label="Demo plaintext message" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+    </section>
+    <aside class="details">
+      <h2>Status</h2>
+      <button id="refreshStatusesBtn">Refresh Sent Status</button>
+      <h3>Sent messages</h3>
+      <div id="sentStatusList"></div>
+      <h3>Activity</h3>
+      <div id="statusList"></div>
+    </aside>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

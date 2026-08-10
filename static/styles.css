@@ -1,0 +1,24 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f7f8; color: #1b1f23; }
+.app-shell { min-height: 100vh; display: grid; grid-template-columns: 280px minmax(0, 1fr) 260px; }
+.sidebar, .details { background: #ffffff; border-right: 1px solid #d7dde2; padding: 16px; }
+.details { border-right: 0; border-left: 1px solid #d7dde2; }
+h1, h2 { margin: 0 0 12px; font-size: 20px; letter-spacing: 0; }
+h3 { margin: 20px 0 8px; font-size: 15px; letter-spacing: 0; }
+.panel { margin-bottom: 16px; display: grid; gap: 8px; }
+input, button { height: 40px; border-radius: 6px; font: inherit; }
+input { border: 1px solid #bcc6cf; padding: 0 10px; min-width: 0; }
+button { border: 1px solid #1d6f8f; background: #1d6f8f; color: #fff; padding: 0 12px; cursor: pointer; }
+button:hover { background: #175b75; }
+button:disabled { cursor: not-allowed; opacity: 0.6; }
+.chat { min-width: 0; display: grid; grid-template-rows: auto 1fr auto; }
+.chat header { background: #ffffff; border-bottom: 1px solid #d7dde2; padding: 16px; }
+.chat header p, #authState { margin: 0; color: #53606b; font-size: 14px; overflow-wrap: anywhere; }
+.messages { padding: 16px; overflow: auto; display: grid; align-content: start; gap: 10px; }
+.message { max-width: 70%; padding: 10px 12px; border-radius: 8px; background: #ffffff; border: 1px solid #d7dde2; overflow-wrap: anywhere; }
+.message.mine { margin-left: auto; background: #e7f3f7; border-color: #b8dbe7; }
+#composer { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 8px; padding: 16px; background: #ffffff; border-top: 1px solid #d7dde2; }
+#prekeyHealth, #sentStatusList, #statusList { color: #53606b; font-size: 14px; overflow-wrap: anywhere; }
+#sentStatusList, #statusList { display: grid; gap: 8px; }
+.status-item { border-bottom: 1px solid #e5e9ec; padding-bottom: 8px; }
+@media (max-width: 860px) { .app-shell { grid-template-columns: 1fr; } .sidebar, .details { border: 0; border-bottom: 1px solid #d7dde2; } .message { max-width: 92%; } .chat { min-height: 60vh; } }

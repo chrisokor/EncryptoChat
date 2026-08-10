@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     
     services:
       postgres:
@@ -69,3 +71,37 @@ jobs:
       with:
         file: ./coverage.xml
         fail_ci_if_error: false
+
+    - name: Build Docker image
+      run: |
+        docker build -t encryptochat:${{ github.sha }} .
+
+  publish:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build Docker image
+      run: |
+        docker build -t encryptochat:${{ github.sha }} .
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Publish Docker image
+      run: |
+        IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/encryptochat
+        docker tag encryptochat:${{ github.sha }} $IMAGE_NAME:${{ github.sha }}
+        docker tag encryptochat:${{ github.sha }} $IMAGE_NAME:latest
+        docker push $IMAGE_NAME:${{ github.sha }}
+        docker push $IMAGE_NAME:latest

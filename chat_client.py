@@ -1,4 +1,5 @@
 from nacl.public import PrivateKey, Box, PublicKey
+from nacl.signing import SigningKey
 import requests
 import base64
 import os
@@ -14,6 +15,7 @@ class ChatClient:
     def __init__(self, username: str, prekey_count: int = 5):
         self.username = username
         self.keyfile = f".keys/{username}.json"
+        self._legacy_signing_key_generated = False
 
         # load or generate main keys
         if os.path.exists(self.keyfile):
@@ -22,6 +24,9 @@ class ChatClient:
         else:
             self.secret_key = PrivateKey.generate()
             self.public_key = self.secret_key.public_key
+            self.signing_key = SigningKey.generate()
+            self.signing_public_key = self.signing_key.verify_key
+            self.token = None
             self.prekeys_to_privs: Dict[str, PrivateKey] = {}
             self._gen_prekeys(prekey_count)
             self._save_keys()
@@ -49,6 +54,9 @@ class ChatClient:
         data = {
             "secret_key": bytes_to_base64_str(bytes(self.secret_key)),
             "public_key": bytes_to_base64_str(bytes(self.public_key)),
+            "signing_key": bytes_to_base64_str(bytes(self.signing_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(self.signing_public_key)),
+            "token": getattr(self, "token", None),
             "prekeys": {}
         }
 
@@ -67,6 +75,14 @@ class ChatClient:
 
         self.secret_key = PrivateKey(base64_str_to_bytes(data["secret_key"]))
         self.public_key = PublicKey(base64_str_to_bytes(data["public_key"]))
+        signing_key = data.get("signing_key")
+        if signing_key:
+            self.signing_key = SigningKey(base64_str_to_bytes(signing_key))
+        else:
+            self.signing_key = SigningKey.generate()
+            self._legacy_signing_key_generated = True
+        self.signing_public_key = self.signing_key.verify_key
+        self.token = data.get("token")
 
         # load prekey private keys
         self.prekeys_to_privs = {}
@@ -80,27 +96,88 @@ class ChatClient:
                 "key": bytes_to_base64_str(bytes(pub_key))
             })
 
+        if self._legacy_signing_key_generated:
+            self._save_keys()
+            print(
+                f"[{self.username}] Legacy key file migrated: generated a new signing key. "
+                "If this account already exists on the server, reset or re-register it "
+                "because the server does not have this signing public key."
+            )
+
 
     # register a user - generate their public key
     def register(self):
         r = requests.post(f"{API}/register", json={
             "username": self.username,
-            "public_key": bytes_to_base64_str(bytes(self.public_key))
+            "public_key": bytes_to_base64_str(bytes(self.public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(self.signing_public_key)),
         })
         if r.status_code == 400:
             print(f"[{self.username}] is already registered.")
+            if self._legacy_signing_key_generated:
+                print(
+                    f"[{self.username}] Recovery required: the existing server account predates "
+                    "signing authentication. Reset or re-register the account to store this signing key."
+                )
             return
         r.raise_for_status()
         
-        r = requests.post(f"{API}/users/{self.username}/prekeys", json={
+        self.authenticate()
+        r = self._protected_request(requests.post, f"{API}/users/{self.username}/prekeys", json={
             "prekeys": self.prekeys_upload
         })
         r.raise_for_status()
         print(f"[{self.username}] registered with [{len(self.prekeys_upload)}] prekeys")
 
+    def authenticate(self):
+        challenge_response = requests.get(f"{API}/auth/challenge/{self.username}")
+        challenge_response.raise_for_status()
+        challenge = challenge_response.json()["challenge"]
+        signature = self.signing_key.sign(challenge.encode()).signature
+        login = requests.post(f"{API}/auth/login", json={
+            "username": self.username,
+            "challenge": challenge,
+            "signature": bytes_to_base64_str(signature),
+        })
+        login.raise_for_status()
+        self.token = login.json()["access_token"]
+        self._save_keys()
+
+    def _auth_headers(self):
+        if not getattr(self, "token", None):
+            self.authenticate()
+        return {"Authorization": f"Bearer {self.token}"}
+
+    def _protected_request(self, request, *args, **kwargs):
+        response = request(*args, headers=self._auth_headers(), **kwargs)
+        if response.status_code == 401:
+            self.authenticate()
+            response = request(*args, headers=self._auth_headers(), **kwargs)
+        return response
+
+    def show_prekey_health(self):
+        response = self._protected_request(
+            requests.get,
+            f"{API}/users/{self.username}/prekeys/count",
+        )
+        response.raise_for_status()
+        data = response.json()
+        print(f"[{self.username}] unused prekeys: {data['count']}")
+
+    def refill_prekeys(self, count: int = 5):
+        self._gen_prekeys(count)
+        response = self._protected_request(
+            requests.post,
+            f"{API}/users/{self.username}/prekeys",
+            json={"prekeys": self.prekeys_upload},
+        )
+        response.raise_for_status()
+        self._save_keys()
+        print(f"[{self.username}] uploaded {count} prekeys")
+
     # retrieve a peer's public key and create a Box (runs D-H inside)
     def handshake_with(self, peer: str):
-        r = requests.get(f"{API}/users/{peer}/keys")
+        r = self._protected_request(requests.get, f"{API}/users/{peer}/keys")
         r.raise_for_status()
         response_data = r.json()
 
@@ -134,7 +211,7 @@ class ChatClient:
         nonce = nacl_random(Box.NONCE_SIZE)
         ciphertext = box.encrypt(plaintext.encode(), nonce)
 
-        request = requests.post(f"{API}/send", json={
+        request = self._protected_request(requests.post, f"{API}/send", json={
             "to": to,
             "frm": self.username,
             "ciphertext": bytes_to_base64_str(ciphertext),
@@ -146,7 +223,7 @@ class ChatClient:
 
     # retrieve inbox and decrypt messages
     def receive_all(self):
-        request = requests.get(f"{API}/inbox/{self.username}")
+        request = self._protected_request(requests.get, f"{API}/inbox/{self.username}")
         request.raise_for_status()
         messages = request.json()["inbox"]
 
@@ -193,5 +270,3 @@ class ChatClient:
             except Exception as e:
                 print(f"[{self.username}] Failed to decrypt message from [{frm}]: {e}")
                
-
-

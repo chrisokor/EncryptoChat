@@ -1,5 +1,6 @@
 import os
 from nacl.public import PrivateKey
+from nacl.signing import SigningKey
 from utils.base_64_utils import bytes_to_base64_str
 from uuid import uuid4
 
@@ -78,17 +79,29 @@ def registered_user(client):
 
     user_secret_key = PrivateKey.generate()
     user_public_key = user_secret_key.public_key
-    username = "Alice"
+    signing_key = SigningKey.generate()
+    username = "alice"
 
     client.post("/register", json={
         "username": username,
-        "public_key": bytes_to_base64_str(bytes(user_public_key))
+        "public_key": bytes_to_base64_str(bytes(user_public_key)),
+        "signing_public_key": bytes_to_base64_str(bytes(signing_key.verify_key)),
+    })
+
+    challenge = client.get(f"/auth/challenge/{username.lower()}").json()["challenge"]
+    signature = signing_key.sign(challenge.encode()).signature
+    login = client.post("/auth/login", json={
+        "username": username,
+        "challenge": challenge,
+        "signature": bytes_to_base64_str(signature),
     })
 
     return {
         "username": username,
         "secret_key": user_secret_key,
-        "public_key": user_public_key
+        "public_key": user_public_key,
+        "signing_key": signing_key,
+        "token": login.json()["access_token"],
     }
 
 
@@ -96,9 +109,9 @@ def registered_user(client):
 def upload_prekeys(client):
     """"Upload list of user's prekeys to database"""
 
-    def _upload_prekeys(username, count=5):
+    def _upload_prekeys(user, count=5):
         """Create list of a user's prekeys"""
-        
+        username = user["username"]
         prekeys = []
         for _ in range(count):
             secret_key = PrivateKey.generate()
@@ -110,9 +123,7 @@ def upload_prekeys(client):
 
         response = client.post(f"/users/{username}/prekeys", json={
             "prekeys": prekeys
-        })
+        }, headers={"Authorization": f"Bearer {user['token']}"})
         return {"prekeys": prekeys, "response": response}
 
     return _upload_prekeys
-
-

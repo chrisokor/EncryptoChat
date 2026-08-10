@@ -1,11 +1,9 @@
-import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from models.database_models import Base
+from settings import settings
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost/encryptochat")
-
-engine = create_engine(DATABASE_URL, echo=False)
+engine = create_engine(settings.database_url, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def init_database():

@@ -1,4 +1,5 @@
 from nacl.public import PrivateKey
+from nacl.signing import SigningKey
 from utils.base_64_utils import bytes_to_base64_str
 
 
@@ -11,7 +12,8 @@ class TestSendMessage:
         from_username = "Alice"
         client.post("/register", json={
             "username": from_username,
-            "public_key": bytes_to_base64_str(bytes(from_public_key))
+            "public_key": bytes_to_base64_str(bytes(from_public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(SigningKey.generate().verify_key)),
         })
 
         to_secret_key = PrivateKey.generate()
@@ -19,7 +21,8 @@ class TestSendMessage:
         to_username = "Bob"
         client.post("/register", json={
             "username": to_username,
-            "public_key": bytes_to_base64_str(bytes(to_public_key))
+            "public_key": bytes_to_base64_str(bytes(to_public_key)),
+            "signing_public_key": bytes_to_base64_str(bytes(SigningKey.generate().verify_key)),
         })
 
         # to_user uploads prekeys

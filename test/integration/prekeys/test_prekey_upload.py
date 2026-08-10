@@ -23,7 +23,7 @@ class TestPrekeyUpload:
         # upload prekeys
         response = client.post(f"/users/{username}/prekeys", json={
             "prekeys": prekeys
-        })
+        }, headers={"Authorization": f"Bearer {registered_user['token']}"})
 
         # assert successful response
         assert response.status_code == 200
@@ -46,13 +46,13 @@ class TestPrekeyUpload:
 
         client.post(f"/users/{username}/prekeys", json={
             "prekeys": prekeys
-        })
+        }, headers={"Authorization": f"Bearer {registered_user['token']}"})
 
         # assert prekey data in database
         num_prekeys_in_database = db_session.query(Prekey).filter(Prekey.username == username, Prekey.used == False).count()
         assert num_prekeys_in_database == 5 
 
-    def test_upload_prekeys_for_nonexistent_user_returns_404(self, client):
+    def test_upload_prekeys_for_nonexistent_user_returns_404(self, client, registered_user):
         # create nonexisting username
         username = "Bob" 
 
@@ -68,7 +68,7 @@ class TestPrekeyUpload:
 
         response = client.post(f"/users/{username}/prekeys", json={
             "prekeys": prekeys
-        })
+        }, headers={"Authorization": f"Bearer {registered_user['token']}"})
 
         # assert response status code is 404 and returns "User not found."
         assert response.status_code == 404
@@ -102,17 +102,17 @@ class TestPrekeyUpload:
         # upload each list separately and assert counts are 5, 10, and 15
         response = client.post(f"/users/{username}/prekeys", json={
             "prekeys": prekeys_batch1
-        })
+        }, headers={"Authorization": f"Bearer {registered_user['token']}"})
         assert response.json()["count"] == 5
 
         response = client.post(f"/users/{username}/prekeys", json={
             "prekeys": prekeys_batch2
-        })
+        }, headers={"Authorization": f"Bearer {registered_user['token']}"})
         assert response.json()["count"] == 10
 
         response = client.post(f"/users/{username}/prekeys", json={
             "prekeys": prekeys_batch3
-        })
+        }, headers={"Authorization": f"Bearer {registered_user['token']}"})
         assert response.json()["count"] == 15
 
 
@@ -124,9 +124,17 @@ class TestPrekeyUpload:
         # attempt prekey upload with empty list
         response = client.post(f"/users/{username}/prekeys", json={
             "prekeys": []
-        })
+        }, headers={"Authorization": f"Bearer {registered_user['token']}"})
 
         # assert status code is 422 and returns "Prekey list cannot be empty."
         assert response.status_code == 422
         assert response.json()["detail"] == "Prekeys list cannot be empty."
 
+    def test_upload_invalid_prekey_returns_422(self, client, registered_user):
+        username = registered_user["username"]
+
+        response = client.post(f"/users/{username}/prekeys", json={
+            "prekeys": [{"id": "bad id", "key": "not-base64"}]
+        }, headers={"Authorization": f"Bearer {registered_user['token']}"})
+
+        assert response.status_code == 422
