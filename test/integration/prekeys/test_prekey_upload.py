@@ -130,3 +130,11 @@ class TestPrekeyUpload:
         assert response.status_code == 422
         assert response.json()["detail"] == "Prekeys list cannot be empty."
 
+    def test_upload_invalid_prekey_returns_422(self, client, registered_user):
+        username = registered_user["username"]
+
+        response = client.post(f"/users/{username}/prekeys", json={
+            "prekeys": [{"id": "bad id", "key": "not-base64"}]
+        })
+
+        assert response.status_code == 422

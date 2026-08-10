@@ -37,10 +37,10 @@ class TestUserRegistration:
         })
 
         # assert database can return the user
-        user = db_session.query(User).filter(User.username == username).first()
+        user = db_session.query(User).filter(User.username == username.lower()).first()
         
         assert user is not None
-        assert user.username == username
+        assert user.username == username.lower()
         assert user.public_key == bytes_to_base64_str(bytes(user_public_key))
 
 
@@ -83,9 +83,8 @@ class TestUserRegistration:
             "public_key": bytes_to_base64_str(bytes(user_public_key))
         })
          
-        # assert response status code returns 422 and returns "Missing username."   
+        # assert response status code returns 422
         assert response.status_code == 422
-        assert response.json()["detail"] == "Missing username."
 
 
     def test_register_missing_public_key_returns_422(self, client):
@@ -99,10 +98,18 @@ class TestUserRegistration:
             "public_key": blank_public_key
         })
 
-        # assert response status is 422 and returns "Missing public key."
+        # assert response status is 422
         assert response.status_code == 422
-        assert response.json()["detail"] == "Missing public key."
 
     def test_register_empty_body_returns_422(self, client):
         response = client.post("/register", json={})
+        assert response.status_code == 422
+
+    def test_register_invalid_username_returns_422(self, client):
+        response = client.post("/register", json={
+            "username": "1 bad name",
+            "public_key": "abc",
+            "signing_public_key": "abc",
+        })
+
         assert response.status_code == 422

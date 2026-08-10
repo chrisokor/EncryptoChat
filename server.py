@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from uuid import uuid4
 from typing import List, Dict
 from contextlib import asynccontextmanager
@@ -9,6 +9,7 @@ from datetime import datetime, UTC
 from database import init_database, get_database
 from models.database_models import User, Message, Prekey
 from utils.redis_helper import push_message_to_inbox, pop_all_inbox_messages, get_inbox_count
+from utils.validation import normalize_username, validate_base64_key, validate_ciphertext, validate_prekey_id
 
 # initialize database upon server start
 @asynccontextmanager
@@ -21,8 +22,26 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 class RegisterRequest(BaseModel):
-    username: str
+    username: str = Field(..., min_length=3, max_length=32)
     public_key: str
+    signing_public_key: str | None = None
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, value):
+        return normalize_username(value)
+
+    @field_validator("public_key")
+    @classmethod
+    def validate_public_key(cls, value):
+        return validate_base64_key(value, 32)
+
+    @field_validator("signing_public_key")
+    @classmethod
+    def validate_signing_public_key(cls, value):
+        if value is None:
+            return None
+        return validate_base64_key(value, 32)
 
 class MessageRequest(BaseModel):
     to: str
@@ -30,9 +49,34 @@ class MessageRequest(BaseModel):
     ciphertext: str
     prekey_id: str
 
+    @field_validator("to", "frm")
+    @classmethod
+    def validate_username(cls, value):
+        return normalize_username(value)
+
+    @field_validator("ciphertext")
+    @classmethod
+    def validate_message_ciphertext(cls, value):
+        return validate_ciphertext(value)
+
+    @field_validator("prekey_id")
+    @classmethod
+    def validate_message_prekey_id(cls, value):
+        return validate_prekey_id(value)
+
 class PrekeyRequest(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     key: str
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, value):
+        return validate_prekey_id(value)
+
+    @field_validator("key")
+    @classmethod
+    def validate_key(cls, value):
+        return validate_base64_key(value, 32)
 
 class PrekeyUpload(BaseModel):
     prekeys: List[PrekeyRequest]
@@ -89,6 +133,7 @@ def send_message(message_request: MessageRequest, db: Session = Depends(get_data
 
 @app.get("/inbox/{username}")
 def get_inbox(username: str, db: Session = Depends(get_database)):
+    username = normalize_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
@@ -102,6 +147,7 @@ def get_inbox(username: str, db: Session = Depends(get_database)):
 @app.get("/inbox/{username}/count")
 def get_inbox_count_endpoint(username: str, db: Session = Depends(get_database)):
     """Check how many pending messages without retrieving them"""
+    username = normalize_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
@@ -112,6 +158,7 @@ def get_inbox_count_endpoint(username: str, db: Session = Depends(get_database))
 
 @app.get("/users/{username}")
 def get_user(username: str, db: Session = Depends(get_database)):
+    username = normalize_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
@@ -120,6 +167,7 @@ def get_user(username: str, db: Session = Depends(get_database)):
 
 @app.post("/users/{username}/prekeys")
 def upload_prekeys(username: str, body: PrekeyUpload, db: Session = Depends(get_database)):
+    username = normalize_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")
@@ -136,6 +184,7 @@ def upload_prekeys(username: str, body: PrekeyUpload, db: Session = Depends(get_
     return {"ok": True, "count": count}
 
 def _consume_prekey_for_user(username: str, db: Session):
+    username = normalize_username(username)
     user = db.query(User).filter(User.username == username).first()
     if not user:
         raise HTTPException(404, "User not found.")

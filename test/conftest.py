@@ -78,7 +78,7 @@ def registered_user(client):
 
     user_secret_key = PrivateKey.generate()
     user_public_key = user_secret_key.public_key
-    username = "Alice"
+    username = "alice"
 
     client.post("/register", json={
         "username": username,
@@ -114,5 +114,4 @@ def upload_prekeys(client):
         return {"prekeys": prekeys, "response": response}
 
     return _upload_prekeys
-
 

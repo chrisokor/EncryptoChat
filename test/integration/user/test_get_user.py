@@ -21,7 +21,7 @@ class TestGetUser:
 
         # assert proper user data is returned in response
         assert response.status_code == 200
-        assert response.json()["username"] == username
+        assert response.json()["username"] == username.lower()
         assert response.json()["public_key"] == bytes_to_base64_str(bytes(user_public_key))
 
 

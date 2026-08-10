@@ -12,7 +12,7 @@ class TestGetPrekey:
         response = client.get(f"/users/{username}/keys")
 
         assert response.status_code == 200
-        assert response.json()["username"] == username
+        assert response.json()["username"] == username.lower()
         assert response.json()["prekey"]["id"] == uploaded[0]["id"]
 
         next_response = client.get(f"/users/{username}/keys")
