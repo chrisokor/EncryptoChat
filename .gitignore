@@ -5,3 +5,4 @@ venv/
 .env
 .github/workflows/.pytest_cache/
 .worktrees/
+.coverage
