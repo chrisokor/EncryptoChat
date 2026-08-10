@@ -1,4 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from uuid import uuid4
 from typing import List, Dict
@@ -28,6 +30,12 @@ async def lifespan(app: FastAPI):
     # Shutdown (if needed)
 
 app = FastAPI(lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/")
+def homepage():
+    return FileResponse("static/index.html")
 
 
 class ConnectionManager:

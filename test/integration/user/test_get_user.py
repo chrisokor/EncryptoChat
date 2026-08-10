@@ -3,6 +3,13 @@ from nacl.signing import SigningKey
 from utils.base_64_utils import bytes_to_base64_str
 
 
+def test_homepage_serves_browser_demo(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "EncryptoChat" in response.text
+
+
 class TestGetUser:
 
     def test_get_existing_user_returns_user_data(self, client):
