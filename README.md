@@ -11,6 +11,14 @@ A secure end-to-end encrypted messaging system built with FastAPI, PostgreSQL, R
 - 🐳 **Docker**: One-command deployment with docker-compose
 - 🔒 **Zero-Knowledge**: Server cannot decrypt messages (private keys never leave client)
 
+## What This Demonstrates
+
+- FastAPI API design with PostgreSQL and Redis.
+- End-to-end encrypted message envelopes using PyNaCl.
+- Signed challenge authentication with Ed25519.
+- Real-time delivery over WebSockets.
+- CI/CD with integration tests and Docker image publishing.
+
 ## Architecture
 
 ```
@@ -158,9 +166,14 @@ Once the server is running, visit:
 | POST | `/send` | Send encrypted message |
 | GET | `/inbox/{username}` | Retrieve and clear inbox |
 | GET | `/inbox/{username}/count` | Get pending message count |
+| POST | `/messages/{message_id}/read` | Mark a delivered message as read |
+| GET | `/messages/sent/{username}` | List messages sent by a user |
 | GET | `/users/{username}` | Get user's public key |
 | GET | `/users/{username}/keys` | Get user's public key + prekey |
 | POST | `/users/{username}/prekeys` | Upload prekeys |
+| GET | `/users/{username}/prekeys/count` | Get available one-time prekey count |
+| WebSocket | `/ws/{username}?token={token}` | Receive real-time encrypted message envelopes |
+| GET | `/` | Open the browser demo shell |
 
 ## Client Commands
 
@@ -209,9 +222,11 @@ EncryptoChat/
 ### Implementation Details
 - Private keys stored locally in `.keys/` (never sent to server)
 - The demo browser client stores private keys in `localStorage`; this is a demo-only limitation and not suitable for production key storage.
+- The browser demo is a REST/WebSocket shell using valid demo ciphertext; it does not implement PyNaCl `Box`-compatible browser encryption, so its messages cannot be decrypted by the CLI client.
 - Prekey-based forward secrecy (one prekey per conversation)
 - Messages deleted from inbox after retrieval (ephemeral delivery)
 - PostgreSQL audit log for message history (encrypted ciphertext only)
+- Authentication challenges and bearer tokens are in-memory and process-local, so they do not survive an API restart or work across multiple API instances.
 
 ## Environment Variables
 
@@ -271,15 +286,10 @@ GitHub Actions runs the test suite against PostgreSQL and Redis service containe
 
 ## Future Enhancements
 
-- [ ] Automated tests (pytest)
-- [ ] CI/CD pipeline (GitHub Actions)
-- [ ] Rate limiting and authentication (JWT)
-- [ ] WebSocket support for real-time messaging
 - [ ] Group chat support
-- [ ] Message read receipts
 - [ ] Prekey rotation and replenishment
 - [ ] HTTPS/TLS support
-- [ ] Frontend UI (React/Vue)
+- [ ] Production-grade browser key storage and PyNaCl-compatible browser encryption
 
 ## Contributing
 
