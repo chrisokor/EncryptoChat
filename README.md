@@ -1,317 +1,390 @@
 # EncryptoChat
 
-A messaging capstone built with FastAPI, PostgreSQL, Redis, WebSockets, and NaCl cryptography. The Python CLI provides the end-to-end encrypted PyNaCl client path; the browser is a separate, server-readable transport demo.
+[![CI](https://github.com/chrisokor/EncryptoChat/actions/workflows/pipeline.yml/badge.svg)](https://github.com/chrisokor/EncryptoChat/actions/workflows/pipeline.yml)
 
-## Features
+EncryptoChat is a Dockerized secure messaging platform built with FastAPI, PostgreSQL, Redis, WebSockets, and PyNaCl.
 
-- 🔐 **CLI End-to-End Encryption**: Python CLI messages use NaCl Box (Curve25519 + XSalsa20 + Poly1305)
-- 🔑 **Prekey Exchange**: One-time prekeys establish Python CLI conversations
-- 🗄️ **PostgreSQL**: Durable storage for users, prekeys, and message audit logs
-- ⚡ **Redis**: Fast message queues for real-time inbox delivery
-- 🐳 **Docker**: One-command deployment with docker-compose
-- 🔒 **CLI Server Opacity**: The server receives ciphertext from PyNaCl CLI clients and does not receive their private keys
+The **Python CLI** is the true client-side encrypted path: private keys stay local, messages are encrypted with PyNaCl before reaching the server, and the server stores/transports ciphertext. The **browser UI** is a separate transport demo that exercises authentication, prekeys, WebSocket delivery, and message status using server-readable demo envelopes.
 
 ## What This Demonstrates
 
-- FastAPI API design with PostgreSQL and Redis.
-- End-to-end encrypted Python CLI message envelopes using PyNaCl.
-- A dependency-free browser transport demo using explicitly server-readable plaintext envelopes.
-- Signed challenge authentication with Ed25519.
-- Real-time delivery over WebSockets.
-- CI/CD with integration tests and Docker image publishing.
+- Backend API design with FastAPI, Pydantic validation, PostgreSQL, SQLAlchemy, and Redis
+- Applied cryptography with X25519 key exchange, PyNaCl authenticated encryption, and Ed25519 signed challenge authentication
+- Real-time message delivery with WebSockets plus Redis-backed inbox fallback
+- User-scoped authorization, public-key identity lookup, safety fingerprints, and prekey-based offline setup
+- CI/CD with PostgreSQL and Redis integration tests, Docker build validation, coverage reporting, and GitHub Container Registry publishing
+
+## Engineering Highlights
+
+- **Encrypted CLI Messaging** - Python CLI messages use PyNaCl `Box` with Curve25519/X25519, XSalsa20, and Poly1305
+- **Signed Authentication** - Ed25519 challenge-response login verifies client identity without sending private keys or passwords
+- **Offline Prekey Setup** - Recipients upload public prekeys so senders can establish conversations while recipients are offline
+- **Real-Time Delivery** - WebSocket delivery for online users with Redis inbox fallback for offline users
+- **Persistent State** - PostgreSQL stores users, public identity keys, prekeys, encrypted CLI payloads, metadata, and message status
+- **Delivery Status** - Messages move through queued, delivered, and read states
+- **Containerized Runtime** - Docker Compose starts the API, PostgreSQL, and Redis together
+- **Automated Verification** - 64 unit/integration tests with 90% coverage
 
 ## Architecture
 
-```
+```text
 PyNaCl CLI (Alice)               Server (FastAPI)               PyNaCl CLI (Bob)
     |                                  |                                  |
-    |-- Register (public key) -------->|                                  |
+    |-- Register public keys --------->|                                  |
     |<-------- OK ---------------------|                                  |
-    |                                  |<------- Register (public key) ---|
+    |                                  |<------- Register public keys ----|
     |                                  |------------ OK ------------------>|
     |                                  |                                  |
+    |-- Auth challenge/login --------->|                                  |
+    |<-- Bearer token -----------------|                                  |
+    |                                  |                                  |
     |-- Get Bob's prekey ------------->|                                  |
-    |<-- Bob's public key + prekey ----|                                  |
+    |<-- Bob identity + prekey --------|                                  |
     |                                  |                                  |
-    | (Encrypt with Bob's prekey)      |                                  |
+    | (Encrypt locally with PyNaCl)    |                                  |
     |                                  |                                  |
-    |-- Send encrypted message ------->|-- Push to Redis queue ---------->|
-    |                                  |   (also log to PostgreSQL)       |
+    |-- Send ciphertext -------------->|-- Store metadata in Postgres --->|
+    |                                  |-- Queue envelope in Redis ------>|
+    |                                  |-- WebSocket live delivery ------>|
     |                                  |                                  |
-    |                                  |<------- Get inbox ---------------|
-    |                                  |-- Pop from Redis queue --------->|
+    |                                  |<------- Fetch inbox -------------|
+    |                                  |-- Pop queued envelope ---------->|
     |                                  |                                  |
-    |                                  |        (Decrypt with prekey      |
-    |                                  |         private key)             |
+    |                                  |        (Decrypt locally)         |
 ```
+
+For CLI messages, encryption and decryption happen on the clients. The server handles identity lookup, signed authentication, prekey distribution, message transport, real-time delivery, persistence, and status tracking.
 
 ## Tech Stack
 
-- **Backend**: FastAPI, Python 3.13
-- **Database**: PostgreSQL 15
-- **Cache/Queue**: Redis 7
-- **Crypto**: PyNaCl (libsodium)
-- **Deployment**: Docker, docker-compose
+| Layer | Technology |
+| --- | --- |
+| Backend | Python 3.13, FastAPI |
+| Validation | Pydantic |
+| Database | PostgreSQL 15, SQLAlchemy |
+| Queue / Cache | Redis 7 |
+| Real-Time Transport | WebSockets |
+| Cryptography | PyNaCl / libsodium |
+| Authentication | Ed25519 signed challenges, bearer tokens |
+| Runtime | Docker, Docker Compose |
+| CI/CD | GitHub Actions, GitHub Container Registry |
 
-## Prerequisites
-
-- Python 3.13+
-- Docker Desktop (for containerized deployment)
-- OR: PostgreSQL 15 + Redis 7 (for local development)
-
-## Quick Start (Docker)
+## Quick Start
 
 ### 1. Clone the repository
+
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/chrisokor/EncryptoChat.git
 cd EncryptoChat
 ```
 
-### 2. Start all services
+### 2. Start the services
 
-This version adds database columns through SQLAlchemy `create_all()` and does not include Alembic migrations. If Docker volumes were created by a pre-capstone version, reset them before startup. This permanently deletes the existing demo database and Redis data:
+If you previously ran an older version of the project, reset the existing Docker volumes first. This deletes local demo data.
 
 ```bash
 docker compose down -v
 ```
 
-Then start the current version:
+Start the application:
 
 ```bash
 docker compose up --build
 ```
 
-This will start:
-- **API server** on `http://localhost:8000`
-- **PostgreSQL** on `localhost:5432`
-- **Redis** on `localhost:6379`
+This starts:
 
-### 3. Run clients in separate terminals
+- FastAPI on `http://localhost:8000`
+- PostgreSQL on `localhost:5432`
+- Redis on `localhost:6379`
 
-**Terminal 1 (Alice):**
+## Browser Demo
+
+Open:
+
+```text
+http://localhost:8000
+```
+
+Use the browser demo to test:
+
+- user registration and signed login flow
+- contact lookup
+- safety fingerprint display
+- prekey count and refill flow
+- WebSocket message delivery
+- inbox fallback
+- sender-visible message status
+
+Important: browser messages are **base64-encoded plaintext demo envelopes**. They are server-readable and are not the end-to-end encrypted PyNaCl path. Use the CLI demo below to test true client-side encryption.
+
+## Encrypted CLI Demo
+
+With Docker running, open two terminals and run the CLI inside the running `api` container.
+
+Terminal 1:
+
 ```bash
-python chat_script.py alice
+docker compose exec api python chat_script.py alice
 ```
 
-**Terminal 2 (Bob):**
+Terminal 2:
+
 ```bash
-python chat_script.py bob
+docker compose exec api python chat_script.py bob
 ```
 
-### 4. Send messages
+From Alice:
 
-In Alice's terminal:
-```
+```text
 alice> hi bob
 alice> msg bob Hello, this is encrypted!
 ```
 
-In Bob's terminal:
-```
+From Bob:
+
+```text
 bob> inbox
 [bob] <- [alice]: [hello from alice]
 [bob] <- [alice]: [Hello, this is encrypted!]
 ```
 
-### 5. Stop services
-```bash
-docker compose down
+Useful CLI commands:
+
+```text
+inbox                 # retrieve pending messages
+hi <peer>             # establish a conversation and send an initial message
+msg <peer> <text>     # send another message
+prekeys               # show available prekeys
+refill 5              # upload more prekeys
+quit                  # exit
 ```
 
-To completely reset (delete data):
+## Security Model
+
+### CLI Encryption Path
+
+- Private encryption keys are generated and stored locally in `.keys/`
+- Private keys are never sent to the server
+- CLI message bodies are encrypted client-side with PyNaCl `Box`
+- The server stores and forwards CLI ciphertext without access to plaintext
+- Public prekeys allow senders to start conversations with offline recipients
+
+### Authentication
+
+EncryptoChat uses signed authentication challenges:
+
+1. The client requests a one-time challenge from the server.
+2. The client signs the challenge with its Ed25519 private signing key.
+3. The server verifies the signature with the registered public signing key.
+4. The server returns a bearer token for protected routes.
+
+### Safety Fingerprints
+
+User profiles expose a stable public identity fingerprint derived from registered public key material. The browser demo displays contact fingerprints so users can compare public identities out of band.
+
+## Important Limitations
+
+EncryptoChat is an educational secure messaging project, not a production replacement for Signal.
+
+- The CLI uses prekey-based session setup, but it does **not** implement a double ratchet or full forward secrecy
+- The browser demo is **not end-to-end encrypted** and sends server-readable demo envelopes
+- Browser identity material is stored in `localStorage`, which is not production-grade key storage
+- Authentication challenges, bearer tokens, and WebSocket connections are process-local and do not scale across multiple API instances
+- Authenticated users can request another user's public prekeys; there is no per-user rate limit against prekey exhaustion
+- Database schemas are created with SQLAlchemy `create_all()`; older Docker volumes should be reset with `docker compose down -v`
+- WebSocket bearer tokens are passed in the query string for local demo simplicity
+
+## API Documentation
+
+Once the server is running:
+
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+### Core Endpoints
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/register` | Register a user and public identity keys |
+| `GET` | `/auth/challenge/{username}` | Generate a one-time authentication challenge |
+| `POST` | `/auth/login` | Verify a signed challenge and issue a bearer token |
+| `POST` | `/send` | Send a CLI ciphertext or browser-demo envelope |
+| `GET` | `/inbox/{username}` | Retrieve queued messages |
+| `GET` | `/inbox/{username}/count` | Return pending message count |
+| `POST` | `/messages/{message_id}/read` | Mark a delivered message as read |
+| `GET` | `/messages/sent/{username}` | List sent-message status records |
+| `GET` | `/users/{username}` | Retrieve public identity information and fingerprint |
+| `GET` | `/users/{username}/keys` | Retrieve a public identity key and consume a prekey |
+| `POST` | `/users/{username}/prekeys` | Upload one-time prekeys |
+| `GET` | `/users/{username}/prekeys/count` | Return available prekey count |
+| `WebSocket` | `/ws/{username}?token={token}` | Receive real-time message envelopes |
+| `GET` | `/` | Open the browser transport demo |
+
+## Testing
+
+The test suite runs on the host and connects to PostgreSQL and Redis on `127.0.0.1`. Docker Compose can provide those services, but the Python test command should run from a local virtual environment.
+
+Start the Docker services:
+
 ```bash
-docker compose down -v
+docker compose up --build
 ```
 
-## Local Development (Without Docker)
+Create the test database once:
 
-### 1. Install dependencies
+```bash
+docker compose exec postgres createdb -U encryptochat encryptochat_test
+```
+
+Install test dependencies:
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Start PostgreSQL
+Run the test suite:
+
+```bash
+pytest -q
+```
+
+Expected result:
+
+```text
+64 passed
+```
+
+Run coverage:
+
+```bash
+pytest --cov=. --cov-report=term
+```
+
+Current coverage:
+
+```text
+90%
+```
+
+## CI/CD
+
+GitHub Actions runs unit and integration tests with PostgreSQL and Redis service containers on pushes and pull requests.
+
+The pipeline also:
+
+- validates Docker image builds
+- reports coverage
+- publishes a commit-SHA image tag on pushes to `main`
+- publishes a `latest` image tag to GitHub Container Registry
+- scopes package-write permission to the main-branch publish job
+
+## Local Development
+
+### Install dependencies
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Start PostgreSQL
+
 ```bash
 brew services start postgresql@15
 createdb encryptochat
 ```
 
-### 3. Start Redis
+### Start Redis
+
 ```bash
 brew services start redis
 ```
 
-### 4. Set environment variables
+### Configure environment
+
 ```bash
 export DATABASE_URL="postgresql://localhost/encryptochat"
 export REDIS_URL="redis://127.0.0.1:6379/0"
+export API_URL="http://127.0.0.1:8000"
 ```
 
-### 5. Run the server
+### Run the API
+
 ```bash
 uvicorn server:app --reload
 ```
 
-### 6. Run clients (in separate terminals)
+### Run CLI clients locally
+
+With the local API running, open two terminals:
+
 ```bash
 python chat_script.py alice
 python chat_script.py bob
 ```
 
-## API Documentation
-
-Once the server is running, visit:
-- **Interactive API docs**: http://localhost:8000/docs
-- **Alternative docs**: http://localhost:8000/redoc
-
-### Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/register` | Register a new user with public key |
-| GET | `/auth/challenge/{username}` | Issue a one-time signing challenge |
-| POST | `/auth/login` | Exchange a signed challenge for a bearer token |
-| POST | `/send` | Send a message envelope (CLI ciphertext or browser demo plaintext) |
-| GET | `/inbox/{username}` | Retrieve and clear inbox |
-| GET | `/inbox/{username}/count` | Get pending message count |
-| POST | `/messages/{message_id}/read` | Mark a delivered message as read |
-| GET | `/messages/sent/{username}` | List messages sent by a user |
-| GET | `/users/{username}` | Get public identity keys and safety fingerprint |
-| GET | `/users/{username}/keys` | Authenticated consumption of a user's public key + prekey |
-| POST | `/users/{username}/prekeys` | Upload prekeys |
-| GET | `/users/{username}/prekeys/count` | Get available one-time prekey count |
-| WebSocket | `/ws/{username}?token={token}` | Receive real-time message envelopes |
-| GET | `/` | Open the browser demo shell |
-
-## Client Commands
-
-```bash
-# Check inbox
-inbox
-
-# Start conversation (handshake + send)
-hi <peer>
-
-# Send message
-msg <peer> <text>
-
-# Exit
-quit
-```
-
 ## Project Structure
 
-```
+```text
 EncryptoChat/
-├── server.py              # FastAPI application
-├── chat_client.py         # Client implementation
+├── server.py              # FastAPI application, routes, WebSocket endpoint
+├── auth.py                # Challenge-response auth and bearer-token helpers
+├── chat_client.py         # Encrypted CLI client implementation
 ├── chat_script.py         # CLI interface
-├── database.py            # SQLAlchemy connection
-├── redis_client.py        # Redis helper functions
+├── database.py            # SQLAlchemy connection/session setup
 ├── models/
 │   └── database_models.py # SQLAlchemy models
+├── static/
+│   ├── index.html         # Browser demo
+│   ├── styles.css
+│   └── app.js
 ├── utils/
-│   ├── constants.py       # Configuration
-│   └── base_64_utils.py   # Encoding helpers
-├── docker-compose.yml     # Docker orchestration
-├── Dockerfile             # API container
-├── requirements.txt       # Python dependencies
-└── README.md              # This file
+│   ├── constants.py
+│   ├── base_64_utils.py
+│   ├── redis_helper.py
+│   └── validation.py
+├── test/                  # Unit and integration tests
+├── docs/
+│   └── LEARNING_GUIDE.md  # Architecture and interview guide
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+└── README.md
 ```
 
-## Security Features
+## Recruiter / Interview Notes
 
-### Cryptographic Primitives
-- **Key Exchange**: Elliptic Curve Diffie-Hellman (X25519)
-- **Encryption**: XSalsa20 stream cipher
-- **Authentication**: Poly1305 MAC
-- **Key Derivation**: HSalsa20
+This project is strongest as a backend/security systems project. The most important talking points are:
 
-### Implementation Details
-- PyNaCl CLI private keys are stored locally in `.keys/` and are never sent to the server.
-- Python CLI message bodies are end-to-end encrypted with PyNaCl `Box`; the server stores ciphertext and cannot decrypt that path without client private keys.
-- The browser demo stores its local identity material in `localStorage`, which is not suitable for production key storage.
-- Browser message bodies are base64-encoded plaintext demo envelopes. Base64 is reversible encoding, the server can read these bodies, and the browser path is not end-to-end encrypted or zero-knowledge.
-- The CLI uses one-time prekeys for conversation setup, but it retains prekey private keys and can reuse a session prekey for later messages. This design does not provide forward secrecy or a double ratchet.
-- Messages deleted from inbox after retrieval (ephemeral delivery)
-- PostgreSQL audit log containing CLI ciphertext or server-readable browser demo envelopes, depending on the client path.
-- Authentication challenges and bearer tokens are in-memory and process-local, so they do not survive an API restart or work across multiple API instances.
-- Prekey consumption requires authentication, but this demo has no per-user rate limiting; an authenticated account can still exhaust another user's published prekeys.
-- Schema changes are applied with `create_all()` only. Existing pre-capstone Docker volumes require the destructive `docker compose down -v` reset before this version starts.
+- how the server can route encrypted CLI messages without holding private keys
+- why Redis and WebSockets are both used for delivery
+- how Ed25519 challenge-response authentication proves client identity
+- how PostgreSQL and Redis divide durable state from fast delivery queues
+- what the security limitations are and how the design would evolve toward production
 
-## Environment Variables
+For a deeper walkthrough, read [docs/LEARNING_GUIDE.md](docs/LEARNING_GUIDE.md).
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | `postgresql://localhost/encryptochat` | PostgreSQL connection string |
-| `REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis connection string |
-| `API_URL` | `http://127.0.0.1:8000` | API server URL (client-side) |
+## Future Improvements
 
-## Docker Services
-
-### API Server
-- **Image**: Custom (built from Dockerfile)
-- **Port**: 8000
-- **Environment**: DATABASE_URL, REDIS_URL
-- **Auto-reload**: Enabled in development
-
-### PostgreSQL
-- **Image**: postgres:15-alpine
-- **Port**: 5432
-- **Database**: encryptochat
-- **User**: encryptochat
-- **Password**: encryptochat_password
-
-### Redis
-- **Image**: redis:7-alpine
-- **Port**: 6379
-- **Persistence**: Enabled (redis_data volume)
-
-## Development
-
-### View Logs
-```bash
-docker compose logs -f api
-docker compose logs -f postgres
-docker compose logs -f redis
-```
-
-### Database Access
-```bash
-docker compose exec postgres psql -U encryptochat -d encryptochat
-```
-
-### Redis CLI
-```bash
-docker compose exec redis redis-cli
-```
-
-### Rebuild After Code Changes
-```bash
-docker compose up --build
-```
-
-## CI/CD
-
-GitHub Actions runs the test suite against PostgreSQL and Redis service containers on pushes and pull requests. The pipeline also validates the Docker image build. Pushes to `main` publish a versioned image and `latest` tag to GitHub Container Registry.
-
-## Future Enhancements
-
-- [ ] Group chat support
-- [ ] Prekey rotation and replenishment
-- [ ] HTTPS/TLS support
-- [ ] Production-grade browser key storage and PyNaCl-compatible browser encryption
-
-## Contributing
-
-Contributions welcome! Please open an issue or submit a pull request.
+- Double-ratchet session key evolution
+- Stronger forward-secrecy guarantees
+- Automatic prekey replenishment and rotation
+- Per-user prekey rate limiting
+- Production-grade browser key storage
+- End-to-end encrypted browser client
+- Persistent/distributed authentication sessions
+- Database migrations with Alembic
+- HTTPS/TLS deployment
+- Group messaging
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License.
 
 ## Author
 
-Built as a demonstration of a PyNaCl end-to-end encrypted CLI path plus a dependency-free browser transport demo.
+Built by Chris Okorochukwu as a hands-on exploration of encrypted messaging protocols, distributed backend systems, authentication, real-time delivery, and production-style testing.
